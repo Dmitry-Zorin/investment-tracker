@@ -1,0 +1,2 @@
+{"record_type":"schema","schema_version":1}
+{"record_type":"transaction","event_id":"mock-buy-1","event_type":"buy","event_date":"2026-06-01","account_id":"mock-account","instrument_id":"MOCK-INSTRUMENT-1","quantity":100,"deal_amount":1000,"paid_nkd":0,"broker_fee":1,"exchange_fee":0,"tax":0}

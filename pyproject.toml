@@ -1,0 +1,6 @@
+[project]
+name = "investment-tracker"
+version = "0.1.0"
+description = "Local MOEX portfolio reporting tools"
+requires-python = ">=3.11"
+dependencies = []

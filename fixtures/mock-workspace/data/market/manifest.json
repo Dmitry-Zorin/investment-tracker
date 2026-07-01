@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "source": "Synthetic fixture",
+  "source_base_url": "https://iss.moex.com/iss",
+  "instruments": [
+    {
+      "secid": "MOCKFUND",
+      "instrument_id": "MOCK-INSTRUMENT-1",
+      "name": "Synthetic Cash Fund",
+      "type": "fund",
+      "analysis_profile": "generic_fund",
+      "benchmark": "MOCKFUND",
+      "enabled": true,
+      "warnings": []
+    }
+  ]
+}

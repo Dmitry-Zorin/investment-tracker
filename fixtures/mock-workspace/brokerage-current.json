@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-06-30",
+  "positions": [
+    {
+      "account_id": "mock-account",
+      "instrument_id": "MOCK-INSTRUMENT-1",
+      "name": "Synthetic Cash Fund",
+      "asset_type": "money_market_fund",
+      "quantity": 100,
+      "first_trade_date": "2026-06-01",
+      "cost_basis": 1001,
+      "current_value_without_nkd": 1029,
+      "current_nkd": 0,
+      "current_value": 1029,
+      "total_pnl": 28,
+      "return": 0.027972027972028
+    }
+  ],
+  "totals": {
+    "open_position_cost_basis": 1001,
+    "securities_total": 1029,
+    "total_pnl": 28,
+    "cash": 250
+  },
+  "warnings": [
+    {
+      "warning_id": "synthetic-data",
+      "message": "This workspace contains synthetic demonstration data only."
+    }
+  ],
+  "checks": [
+    {
+      "check_id": "synthetic-fixture",
+      "status": "pass"
+    }
+  ]
+}
