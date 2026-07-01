@@ -216,7 +216,15 @@ def read_market_csv(path: Path) -> list[dict]:
     numeric = {"close", "accrued_interest", "unit_value_rub", "volume", "value_rub", "yield_close"}
     for row in rows:
         for key in numeric & row.keys():
-            row[key] = None if row[key] == "" else float(row[key])
+            if row[key] == "":
+                row[key] = None
+                continue
+            try:
+                row[key] = float(row[key])
+            except (TypeError, ValueError) as error:
+                raise MarketDataError(
+                    f"Invalid numeric value {row[key]!r} for {key} in {path.name}"
+                ) from error
     return rows
 
 

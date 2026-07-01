@@ -89,6 +89,46 @@ class MarketReportCliTests(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("stale", completed.stderr.lower())
 
+    def test_build_reports_no_enabled_instruments_without_traceback(self):
+        (self.root / "data/market/manifest.json").write_text(
+            json.dumps({"schema_version": 1, "instruments": []}), encoding="utf-8"
+        )
+
+        completed = self.run_cli("build")
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("error:", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_build_reports_malformed_position_without_traceback(self):
+        brokerage = {
+            "as_of": "2020-01-02",
+            "positions": [
+                {
+                    "account_id": "mock-account",
+                    "instrument_id": "F1",
+                    "name": "Fund",
+                    "asset_type": "money_market_fund",
+                    "quantity": 1,
+                    "first_trade_date": "2020-01-01",
+                    "cost_basis": 10,
+                    "current_value_without_nkd": 10,
+                    "current_nkd": 0,
+                    "total_pnl": 0,
+                    "return": 0,
+                }
+            ],
+            "warnings": [],
+            "checks": [{"status": "pass"}],
+        }
+        (self.root / "brokerage-current.json").write_text(json.dumps(brokerage), encoding="utf-8")
+
+        completed = self.run_cli("build")
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertIn("current_value", completed.stderr)
+
     def test_export_contains_required_package(self):
         self.assertEqual(self.run_cli("build").returncode, 0)
 

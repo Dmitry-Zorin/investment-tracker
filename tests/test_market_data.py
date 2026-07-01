@@ -163,6 +163,18 @@ class MarketDataTests(unittest.TestCase):
 
         self.assertEqual(select_history_boards(security, "fund"), ["TQBR", "TQTF"])
 
+    def test_non_numeric_csv_cell_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "BAD.csv"
+            path.write_text(
+                "date,board_id,close,price_unit,accrued_interest,unit_value_rub,volume,value_rub\n"
+                "2026-06-30,TQBR,not-a-number,rub_per_unit,,10,1,10\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(MarketDataError):
+                read_market_csv(path)
+
     def test_atomic_csv_write_is_idempotent(self):
         rows = [
             {

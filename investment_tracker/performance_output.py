@@ -37,6 +37,21 @@ ASSET_TYPES = {
     "money_market_fund": ("fund_money_market", "Фонд денежного рынка"),
 }
 
+REQUIRED_POSITION_FIELDS = (
+    "account_id",
+    "instrument_id",
+    "name",
+    "asset_type",
+    "quantity",
+    "first_trade_date",
+    "cost_basis",
+    "current_value_without_nkd",
+    "current_nkd",
+    "current_value",
+    "total_pnl",
+    "return",
+)
+
 
 def _localize_annualized_reason(reason: str | None) -> str | None:
     if reason == "holding period is shorter than 30 days":
@@ -221,6 +236,8 @@ def build_report_model(root: Path) -> dict:
         histories[item["secid"]] = adjust_history_for_corporate_actions(
             raw_rows, item.get("corporate_actions")
         )
+    if not histories:
+        raise OutputError("No enabled instruments in market manifest")
     if any(not rows for rows in histories.values()):
         raise OutputError("One or more enabled instruments have empty market history")
     latest_market_date = max(rows[-1]["date"] for rows in histories.values())
@@ -243,6 +260,23 @@ def build_report_model(root: Path) -> dict:
         {item["benchmark"] for item in by_id.values() if item.get("benchmark")}
     )
     for snapshot in brokerage.get("positions", []):
+        missing = [field for field in REQUIRED_POSITION_FIELDS if field not in snapshot]
+        if missing:
+            raise OutputError(
+                f"Brokerage position {snapshot.get('instrument_id', '?')} is missing required "
+                f"fields: {', '.join(missing)}"
+            )
+        try:
+            snapshot_quantity = float(snapshot["quantity"])
+        except (TypeError, ValueError) as error:
+            raise OutputError(
+                f"Brokerage position {snapshot['instrument_id']} has non-numeric quantity: "
+                f"{snapshot['quantity']!r}"
+            ) from error
+        if snapshot_quantity == 0:
+            raise OutputError(
+                f"Brokerage position {snapshot['instrument_id']} has zero quantity"
+            )
         instrument = by_id.get(snapshot["instrument_id"])
         if not instrument:
             warnings.append(

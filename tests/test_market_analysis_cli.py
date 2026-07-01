@@ -57,6 +57,17 @@ class MarketAnalysisCliTests(unittest.TestCase):
             self.assertIn("market-analysis/charts/FUND-3m.svg", names)
             self.assertEqual(len([name for name in names if name.endswith(".svg")]), 4)
 
+    def test_no_enabled_instruments_fails_without_traceback(self):
+        (self.root / "data/market/manifest.json").write_text(
+            json.dumps({"schema_version": 1, "instruments": []}), encoding="utf-8"
+        )
+
+        completed = self.run_cli("check-market-analysis")
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("error:", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

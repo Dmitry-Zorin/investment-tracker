@@ -65,6 +65,8 @@ def build_market_analysis_model(root: Path) -> dict:
         analysis["analysis_limitations"] = notes["limitations"]
         instruments.append(analysis)
         sources.append(path)
+    if not instruments:
+        raise MarketAnalysisOutputError("No enabled instruments in market manifest")
     latest = max(item["data_rows"][-1]["date"] for item in instruments)
     warnings = sorted({warning for item in instruments for warning in item["warnings"]})
     return {
