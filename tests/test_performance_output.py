@@ -172,8 +172,8 @@ class PerformanceOutputTests(unittest.TestCase):
         self.assertIn("<svg", svg)
         self.assertIn("2026-06-01", svg)
         self.assertIn("2026-06-30", svg)
-        self.assertIn("Источник: MOEX ISS", svg)
-        self.assertIn("Значения: RUB per unit", svg)
+        self.assertIn("Source: MOEX ISS", svg)
+        self.assertIn("Values: RUB per unit", svg)
 
     def test_summary_uses_null_for_missing_values(self):
         summary = build_market_summary(self.model)

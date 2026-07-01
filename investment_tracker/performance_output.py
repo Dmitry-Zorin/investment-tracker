@@ -849,7 +849,7 @@ def render_line_chart(
         f'<text x="{width-right-75}" y="{height-20}" font-family="sans-serif" font-size="12">{end}</text>\n'
         f'<text x="8" y="{top+8}" font-family="sans-serif" font-size="12">{maximum:.4g}</text>\n'
         f'<text x="8" y="{height-bottom}" font-family="sans-serif" font-size="12">{minimum:.4g}</text>\n'
-        f'<text x="{left}" y="{height-5}" font-family="sans-serif" font-size="11">Источник: MOEX ISS. Последняя котировка: {end}. Значения: {html.escape(unit_label or value_key)}.</text>\n'
+        f'<text x="{left}" y="{height-5}" font-family="sans-serif" font-size="11">Source: MOEX ISS. Last quote: {end}. Values: {html.escape(unit_label or value_key)}.</text>\n'
         '</svg>\n'
     )
 
@@ -902,7 +902,7 @@ def render_multi_line_chart(title: str, series: dict[str, list[dict]], value_key
         + f'<text x="{width-right-75}" y="{height-20}" font-family="sans-serif" font-size="12">{last_date.isoformat()}</text>\n'
         + f'<text x="8" y="{top+8}" font-family="sans-serif" font-size="12">{maximum:.4g}</text>\n'
         + f'<text x="8" y="{height-bottom}" font-family="sans-serif" font-size="12">{minimum:.4g}</text>\n'
-        + f'<text x="{left}" y="{height-5}" font-family="sans-serif" font-size="11">Источник: MOEX ISS. Последняя котировка: {last_date.isoformat()}. Значения: нормированный индекс.</text>\n'
+        + f'<text x="{left}" y="{height-5}" font-family="sans-serif" font-size="11">Source: MOEX ISS. Last quote: {last_date.isoformat()}. Values: normalized index.</text>\n'
         + '</svg>\n'
     )
 
@@ -947,7 +947,7 @@ def render_bar_chart(title: str, categories: list[tuple[str, float]], unit: str)
         f'<line x1="{left}" y1="{baseline:.2f}" x2="{width-right}" y2="{baseline:.2f}" stroke="#555"/>\n'
         + "\n".join(elements)
         + "\n"
-        + f'<text x="{left}" y="{height-8}" font-family="sans-serif" font-size="11">Источник: brokerage-current.json и MOEX ISS. Значения: {html.escape(unit)}.</text>\n'
+        + f'<text x="{left}" y="{height-8}" font-family="sans-serif" font-size="11">Source: brokerage-current.json and MOEX ISS. Values: {html.escape(unit)}.</text>\n'
         + '</svg>\n'
     )
 
