@@ -9,6 +9,7 @@ from investment_tracker.market_data import (
     add_instrument,
     adjust_history_for_corporate_actions,
     default_analysis_profile,
+    discover_security,
     history_overlap,
     load_manifest,
     merge_board_rows,
@@ -314,6 +315,72 @@ class MoexClientTests(unittest.TestCase):
         self.assertEqual(
             MoexClient(base_url="https://iss.moex.com/iss").base_url, "https://iss.moex.com/iss"
         )
+
+
+class MoexIntegrationTests(unittest.TestCase):
+    class DiscoveryClient:
+        def get(self, path, params=None):
+            if path.startswith("securities/"):
+                return {
+                    "description": {
+                        "columns": ["name", "value"],
+                        "data": [["NAME", "Fund"], ["ISIN", "RU000TEST"]],
+                    },
+                    "boards": {
+                        "columns": ["boardid", "engine", "market", "is_primary"],
+                        "data": [
+                            ["TQBR", "stock", "shares", 1],
+                            ["SMAL", "stock", "shares", 0],
+                            ["CETS", "currency", "selt", 0],
+                        ],
+                    },
+                }
+            start = (params or {}).get("start", 0)
+            total = 3
+            data = [] if start >= total else [[f"2026-06-0{start + 1}", 10 + start, 100, 1000]]
+            return {
+                "history": {"columns": ["TRADEDATE", "CLOSE", "VOLUME", "VALUE"], "data": data},
+                "history.cursor": {"columns": ["TOTAL"], "data": [[total]]},
+            }
+
+    def test_discover_security_selects_primary_and_same_market_boards(self):
+        security = discover_security(self.DiscoveryClient(), "TESTFUND")
+
+        self.assertEqual(security["primary_board"], "TQBR")
+        self.assertEqual(security["market"], "shares")
+        self.assertEqual(security["instrument_id"], "RU000TEST")
+        self.assertEqual(security["boards"], ["SMAL", "TQBR"])
+
+    def test_discover_security_without_primary_board_is_rejected(self):
+        class NoPrimary:
+            def get(self, path, params=None):
+                return {
+                    "description": {"columns": ["name", "value"], "data": [["NAME", "X"]]},
+                    "boards": {
+                        "columns": ["boardid", "engine", "market", "is_primary"],
+                        "data": [["TQBR", "stock", "shares", 0]],
+                    },
+                }
+
+        with self.assertRaises(MarketDataError):
+            discover_security(NoPrimary(), "TESTFUND")
+
+    def test_update_instrument_follows_history_pagination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data/market").mkdir(parents=True)
+
+            metadata, warnings = update_instrument(
+                self.DiscoveryClient(),
+                root,
+                {"secid": "TESTFUND", "type": "fund", "benchmark": "X"},
+            )
+
+            rows = read_market_csv(root / "data/market/TESTFUND.csv")
+            self.assertEqual([row["date"] for row in rows], ["2026-06-01", "2026-06-02", "2026-06-03"])
+            self.assertEqual(metadata["first_market_date"], "2026-06-01")
+            self.assertEqual(metadata["latest_market_date"], "2026-06-03")
+            self.assertEqual(warnings, [])
 
 
 if __name__ == "__main__":
