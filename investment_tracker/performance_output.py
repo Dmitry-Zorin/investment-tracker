@@ -61,7 +61,7 @@ def _localize_annualized_reason(reason: str | None) -> str | None:
 
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", dir=path.parent, delete=False) as handle:
         handle.write(content)
         temporary = Path(handle.name)
     temporary.replace(path)

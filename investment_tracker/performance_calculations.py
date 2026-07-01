@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from investment_tracker.dates import subtract_months
+
 
 class CalculationError(RuntimeError):
     pass
@@ -198,20 +200,12 @@ def calculate_drawdown(values: list[float]) -> DrawdownResult:
     return DrawdownResult(current, maximum)
 
 
-def _subtract_months(value: date, months: int) -> date:
-    month_index = value.year * 12 + value.month - 1 - months
-    year, month_zero = divmod(month_index, 12)
-    month = month_zero + 1
-    month_days = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    return date(year, month, min(value.day, month_days[month - 1]))
-
-
 def calculate_period_return(rows: list[dict], months: int) -> float | None:
     if len(rows) < 2:
         return None
     ordered = sorted(rows, key=lambda row: row["date"])
     end_date = date.fromisoformat(ordered[-1]["date"])
-    target = _subtract_months(end_date, months)
+    target = subtract_months(end_date, months)
     eligible = [row for row in ordered if date.fromisoformat(row["date"]) >= target]
     if not eligible or date.fromisoformat(eligible[0]["date"]) > target + (end_date - target) / 4:
         return None

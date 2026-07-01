@@ -4,6 +4,7 @@ import math
 import statistics
 from datetime import date
 
+from investment_tracker.dates import subtract_months
 from investment_tracker.market_data import adjust_history_for_corporate_actions
 
 
@@ -12,14 +13,6 @@ WINDOW_MONTHS = {"5y": 60, "1y": 12, "3m": 3}
 
 class MarketAnalysisError(RuntimeError):
     pass
-
-
-def _subtract_months(value: date, months: int) -> date:
-    month_index = value.year * 12 + value.month - 1 - months
-    year, month_zero = divmod(month_index, 12)
-    month = month_zero + 1
-    days = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    return date(year, month, min(value.day, days[month - 1]))
 
 
 def _rolling_mean(values: list[float], size: int, index: int) -> float | None:
@@ -129,7 +122,7 @@ def select_window(rows: list[dict], window: str) -> tuple[list[dict], str | None
         return list(rows), None, "complete"
     if window not in WINDOW_MONTHS:
         raise MarketAnalysisError(f"Unsupported window: {window}")
-    boundary = _subtract_months(date.fromisoformat(rows[-1]["date"]), WINDOW_MONTHS[window])
+    boundary = subtract_months(date.fromisoformat(rows[-1]["date"]), WINDOW_MONTHS[window])
     selected = [row for row in rows if date.fromisoformat(row["date"]) >= boundary]
     status = "complete" if date.fromisoformat(rows[0]["date"]) <= boundary else "partial"
     return selected, boundary.isoformat(), status

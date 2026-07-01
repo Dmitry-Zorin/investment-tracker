@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -7,9 +6,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from investment_tracker.market_data import (  # noqa: E402
-    ANALYSIS_PROFILES,
-    MarketDataError,
+from investment_tracker.market_data import (
     MoexClient,
     add_instrument,
     load_manifest,
@@ -17,8 +14,8 @@ from investment_tracker.market_data import (  # noqa: E402
     save_manifest,
     update_instrument,
 )
-from investment_tracker.performance_calculations import CalculationError, load_ledger  # noqa: E402
-from investment_tracker.performance_output import (  # noqa: E402
+from investment_tracker.performance_calculations import load_ledger
+from investment_tracker.performance_output import (
     OutputError,
     build_report_model,
     export_chatgpt,
@@ -154,36 +151,3 @@ def command_export_chatgpt(args: argparse.Namespace) -> int:
     export_chatgpt(root)
     print("Built reports/chatgpt-export.zip")
     return 0
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Update MOEX data and build portfolio reports")
-    parser.add_argument("--workspace", required=True)
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    add = subparsers.add_parser("add", help="add a MOEX instrument")
-    add.add_argument("secid")
-    add.add_argument("--type", required=True, choices=("fund", "bond"))
-    add.add_argument("--benchmark", required=True)
-    add.add_argument("--analysis-profile", choices=sorted(ANALYSIS_PROFILES))
-    add.set_defaults(handler=command_add)
-
-    subparsers.add_parser("update", help="update market CSV files").set_defaults(handler=command_update)
-    subparsers.add_parser("build", help="build report, summary and charts").set_defaults(handler=command_build)
-    subparsers.add_parser("check", help="validate source and generated files").set_defaults(handler=command_check)
-    subparsers.add_parser("export-chatgpt", help="build ChatGPT upload package").set_defaults(handler=command_export_chatgpt)
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    try:
-        return args.handler(args)
-    except (MarketDataError, CalculationError, OutputError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
