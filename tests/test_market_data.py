@@ -1,18 +1,39 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from investment_tracker.market_data import (
     MarketDataError,
+    MoexClient,
+    add_instrument,
     adjust_history_for_corporate_actions,
     default_analysis_profile,
     history_overlap,
+    load_manifest,
     merge_board_rows,
     normalize_history_row,
     read_market_csv,
     select_history_boards,
+    update_instrument,
     write_market_csv,
 )
+
+
+class FakeClient:
+    def get(self, path, params=None):
+        if path.startswith("securities/"):
+            return {
+                "description": {"columns": ["name", "value"], "data": [["NAME", "X"], ["ISIN", "X"]]},
+                "boards": {
+                    "columns": ["boardid", "engine", "market", "is_primary"],
+                    "data": [["TQBR", "stock", "shares", 1]],
+                },
+            }
+        return {
+            "history": {"columns": ["TRADEDATE", "CLOSE", "VOLUME", "VALUE"], "data": [["2026-06-30", 10, 1, 10]]},
+            "history.cursor": {"columns": ["TOTAL"], "data": [[1]]},
+        }
 
 
 class MarketDataTests(unittest.TestCase):
@@ -207,6 +228,92 @@ class MarketDataTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), first)
             self.assertEqual([row["date"] for row in read_market_csv(path)], ["2026-06-19", "2026-06-22"])
             self.assertIn(",368352400.27\n", path.read_text(encoding="utf-8"))
+
+
+class WorkspaceBoundaryTests(unittest.TestCase):
+    def _make_workspace(self, directory, secid="FUND"):
+        root = Path(directory)
+        (root / "data/market").mkdir(parents=True)
+        manifest = {
+            "schema_version": 1,
+            "source": "MOEX ISS",
+            "instruments": [
+                {"secid": secid, "type": "fund", "benchmark": "CASH", "enabled": True}
+            ],
+        }
+        (root / "data/market/manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return root
+
+    def test_add_instrument_rejects_secid_with_path_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "workspace"
+            (root / "data/market").mkdir(parents=True)
+            (root / "data/market/manifest.json").write_text(
+                json.dumps({"schema_version": 1, "instruments": []}), encoding="utf-8"
+            )
+            escaped = Path(directory) / "ESCAPED.csv"
+
+            with self.assertRaises(MarketDataError):
+                add_instrument(FakeClient(), root, "../../ESCAPED", "fund", "CASH")
+
+            self.assertFalse(escaped.exists())
+
+    def test_update_instrument_rejects_secid_with_path_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "workspace"
+            (root / "data/market").mkdir(parents=True)
+            escaped = Path(directory) / "ESCAPED.csv"
+
+            with self.assertRaises(MarketDataError):
+                update_instrument(
+                    FakeClient(),
+                    root,
+                    {"secid": "../../../ESCAPED", "type": "fund", "benchmark": "CASH"},
+                )
+
+            self.assertFalse(escaped.exists())
+
+    def test_load_manifest_rejects_instrument_secid_with_separator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._make_workspace(directory, secid="../../evil")
+
+            with self.assertRaises(MarketDataError):
+                load_manifest(root / "data/market/manifest.json")
+
+    def test_load_manifest_accepts_real_secids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._make_workspace(directory, secid="SU26238RMFS4")
+            manifest = load_manifest(root / "data/market/manifest.json")
+
+            self.assertEqual(manifest["instruments"][0]["secid"], "SU26238RMFS4")
+
+    def test_add_instrument_accepts_normal_secid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data/market").mkdir(parents=True)
+            (root / "data/market/manifest.json").write_text(
+                json.dumps({"schema_version": 1, "instruments": []}), encoding="utf-8"
+            )
+
+            add_instrument(FakeClient(), root, "SBER", "fund", "CASH")
+
+            self.assertTrue((root / "data/market/SBER.csv").exists())
+
+
+class MoexClientTests(unittest.TestCase):
+    def test_rejects_non_http_base_url(self):
+        with self.assertRaises(MarketDataError):
+            MoexClient(base_url="file:///etc/passwd")
+
+    def test_rejects_ftp_base_url(self):
+        with self.assertRaises(MarketDataError):
+            MoexClient(base_url="ftp://example.com/data")
+
+    def test_accepts_http_and_https_base_url(self):
+        self.assertEqual(MoexClient(base_url="http://example.com/iss").base_url, "http://example.com/iss")
+        self.assertEqual(
+            MoexClient(base_url="https://iss.moex.com/iss").base_url, "https://iss.moex.com/iss"
+        )
 
 
 if __name__ == "__main__":

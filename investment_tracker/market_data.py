@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import tempfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
 
@@ -37,6 +38,23 @@ class MarketDataError(RuntimeError):
     pass
 
 
+_SECID_PATTERN = re.compile(r"^[A-Z0-9]+$")
+
+
+def _validate_secid(secid: Any) -> str:
+    if not isinstance(secid, str) or not _SECID_PATTERN.fullmatch(secid):
+        raise MarketDataError(f"Invalid MOEX secid: {secid!r}")
+    return secid
+
+
+def _market_csv_path(root: Path, secid: str) -> Path:
+    _validate_secid(secid)
+    path = root / "data" / "market" / f"{secid}.csv"
+    if not path.resolve(strict=False).is_relative_to(root.resolve(strict=False)):
+        raise MarketDataError(f"Market CSV path escapes workspace: {secid!r}")
+    return path
+
+
 def default_analysis_profile(instrument_type: str) -> str:
     if instrument_type == "fund":
         return "generic_fund"
@@ -55,6 +73,8 @@ def history_overlap(existing: list[dict], instrument: dict) -> str | None:
 
 class MoexClient:
     def __init__(self, base_url: str = "https://iss.moex.com/iss", timeout: int = 30):
+        if urlparse(base_url).scheme not in {"http", "https"}:
+            raise MarketDataError(f"Unsupported source base URL scheme: {base_url!r}")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
@@ -85,6 +105,8 @@ def load_manifest(path: Path) -> dict:
         raise MarketDataError(f"Cannot read manifest {path}: {error}") from error
     if manifest.get("schema_version") != 1 or not isinstance(manifest.get("instruments"), list):
         raise MarketDataError("Unsupported or incomplete market manifest")
+    for instrument in manifest["instruments"]:
+        _validate_secid(instrument.get("secid"))
     return manifest
 
 
@@ -309,10 +331,11 @@ def select_history_boards(security: dict, instrument_type: str) -> list[str]:
 
 
 def update_instrument(client: MoexClient, root: Path, instrument: dict) -> tuple[dict, list[str]]:
+    _validate_secid(instrument.get("secid"))
     security = discover_security(client, instrument["secid"])
     if instrument.get("instrument_id") and instrument["instrument_id"] != security["instrument_id"]:
         raise MarketDataError(f"Instrument id mismatch for {instrument['secid']}")
-    path = root / "data" / "market" / f"{instrument['secid']}.csv"
+    path = _market_csv_path(root, instrument["secid"])
     existing = read_market_csv(path) if path.exists() else []
     overlap = history_overlap(existing, instrument)
     fetched = [
@@ -343,6 +366,7 @@ def add_instrument(
     benchmark: str | None,
     analysis_profile: str | None = None,
 ) -> None:
+    _validate_secid(secid)
     manifest_path = root / "data" / "market" / "manifest.json"
     manifest = load_manifest(manifest_path)
     if any(item["secid"] == secid for item in manifest["instruments"]):
