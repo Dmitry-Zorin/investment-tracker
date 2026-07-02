@@ -11,7 +11,7 @@ import zipfile
 from datetime import date
 from pathlib import Path
 
-from investment_tracker.io_utils import sha256_file
+from investment_tracker.io_utils import format_number, sha256_file
 from investment_tracker.market_analysis_calculations import build_instrument_analysis
 from investment_tracker.market_data import default_analysis_profile, load_manifest, read_market_csv
 from investment_tracker.workspace import WorkspacePaths
@@ -126,17 +126,13 @@ def render_analysis_markdown(model: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _number(value) -> str:
-    return "" if value is None else format(float(value), ".15g")
-
-
 def render_analytical_csv(instrument_analysis: dict) -> str:
     fields = FUND_FIELDS if instrument_analysis["type"] == "fund" else BOND_FIELDS
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     for row in instrument_analysis["data_rows"]:
-        writer.writerow({key: row.get(key, "") if key in {"date", "board_id"} else _number(row.get(key)) for key in fields})
+        writer.writerow({key: row.get(key, "") if key in {"date", "board_id"} else format_number(row.get(key)) for key in fields})
     return output.getvalue()
 
 

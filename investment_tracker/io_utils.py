@@ -19,3 +19,15 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def format_number(value: object) -> str:
+    # CSV cell formatting: blanks stay blank, strings and ints pass through
+    # verbatim, and floats use a compact fixed precision.
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int):
+        return str(value)
+    return format(float(value), ".15g")

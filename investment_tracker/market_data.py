@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, build_opener
 
-from investment_tracker.io_utils import atomic_write
+from investment_tracker.io_utils import atomic_write, format_number
 from investment_tracker.workspace import WorkspacePaths
 
 
@@ -227,16 +227,6 @@ def merge_board_rows(board_rows: list[list[dict]], primary_board: str) -> tuple[
     return [by_date[key] for key in sorted(by_date)], warnings
 
 
-def _number(value: Any) -> str:
-    if value is None or value == "":
-        return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, int):
-        return str(value)
-    return format(float(value), ".15g")
-
-
 def read_market_csv(path: Path) -> list[dict]:
     try:
         with path.open(encoding="utf-8", newline="") as handle:
@@ -298,7 +288,7 @@ def write_market_csv(path: Path, rows: list[dict]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for row in ordered:
-            writer.writerow({key: _number(row.get(key)) for key in fields})
+            writer.writerow({key: format_number(row.get(key)) for key in fields})
         handle.seek(0)
         lines.append(handle.read())
     content = "".join(lines)
