@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
-from urllib.request import urlopen
+from urllib.request import HTTPRedirectHandler, build_opener
 
 from investment_tracker.io_utils import atomic_write
 from investment_tracker.workspace import WorkspacePaths
@@ -74,12 +74,29 @@ def history_overlap(existing: list[dict], instrument: dict) -> str | None:
     return (date.fromisoformat(existing[-1]["date"]) - timedelta(days=7)).isoformat()
 
 
+class _SameHostRedirectHandler(HTTPRedirectHandler):
+    """Reject redirects that would leave the configured MOEX host."""
+
+    def __init__(self, host: str):
+        self.host = host
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlparse(newurl).hostname != self.host:
+            raise MarketDataError(f"MOEX ISS redirect to disallowed host: {newurl!r}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class MoexClient:
     def __init__(self, base_url: str = "https://iss.moex.com/iss", timeout: int = 30):
-        if urlparse(base_url).scheme not in {"http", "https"}:
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"}:
             raise MarketDataError(f"Unsupported source base URL scheme: {base_url!r}")
+        if not parsed.hostname:
+            raise MarketDataError(f"Source base URL has no host: {base_url!r}")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        # Only the configured host is contacted; redirects off it are rejected.
+        self._opener = build_opener(_SameHostRedirectHandler(parsed.hostname))
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict:
         query = urlencode(params or {})
@@ -87,7 +104,7 @@ class MoexClient:
         if query:
             url = f"{url}?{query}"
         try:
-            with urlopen(url, timeout=self.timeout) as response:
+            with self._opener.open(url, timeout=self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as error:
             raise MarketDataError(f"MOEX ISS request failed for {url}: {error}") from error

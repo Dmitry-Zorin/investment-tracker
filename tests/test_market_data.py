@@ -340,6 +340,36 @@ class MoexClientTests(unittest.TestCase):
             MoexClient(base_url="https://iss.moex.com/iss").base_url, "https://iss.moex.com/iss"
         )
 
+    def test_rejects_base_url_without_host(self):
+        with self.assertRaises(MarketDataError):
+            MoexClient(base_url="http://")
+
+    def test_rejects_cross_host_redirect(self):
+        from email.message import Message
+        from urllib.request import Request
+
+        from investment_tracker.market_data import _SameHostRedirectHandler
+
+        handler = _SameHostRedirectHandler("iss.moex.com")
+        request = Request("https://iss.moex.com/iss/a")
+        with self.assertRaises(MarketDataError):
+            handler.redirect_request(
+                request, None, 302, "Found", Message(), "https://attacker.example/x"
+            )
+
+    def test_allows_same_host_redirect(self):
+        from email.message import Message
+        from urllib.request import Request
+
+        from investment_tracker.market_data import _SameHostRedirectHandler
+
+        handler = _SameHostRedirectHandler("iss.moex.com")
+        request = Request("https://iss.moex.com/iss/a")
+        redirected = handler.redirect_request(
+            request, None, 302, "Found", Message(), "https://iss.moex.com/iss/b"
+        )
+        self.assertIsNotNone(redirected)
+
 
 class MoexIntegrationTests(unittest.TestCase):
     class DiscoveryClient:
