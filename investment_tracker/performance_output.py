@@ -5,7 +5,6 @@ import html
 import hashlib
 import io
 import json
-import math
 import shutil
 import tempfile
 import zipfile
@@ -133,6 +132,19 @@ def _warning(severity: str, code: str, message: str, affected_items: list[str] |
     }
 
 
+BENCHMARK_EQUAL_THRESHOLD = 0.0005
+
+
+def interpret_benchmark_difference(difference: float | None) -> str:
+    if difference is None:
+        return "not_available"
+    if abs(difference) <= BENCHMARK_EQUAL_THRESHOLD:
+        return "approximately_equal"
+    if difference > 0:
+        return "outperformed_benchmark"
+    return "underperformed_benchmark"
+
+
 def aggregate_ticker_views(
     positions: list[dict],
     comparisons: list[dict],
@@ -198,14 +210,7 @@ def aggregate_ticker_views(
             if instrument_return is not None and comparison_return is not None
             else None
         )
-        if difference is None:
-            interpretation = "not_available"
-        elif abs(difference) <= 0.0005:
-            interpretation = "approximately_equal"
-        elif difference > 0:
-            interpretation = "outperformed_benchmark"
-        else:
-            interpretation = "underperformed_benchmark"
+        interpretation = interpret_benchmark_difference(difference)
         methods = group["methods"]
         method = "lot_based" if methods == {"lot_based"} else "not_available"
         benchmark_rows.append(
@@ -358,14 +363,7 @@ def build_report_model(root: Path) -> dict:
             if result.simple_return is not None and benchmark_return_value is not None
             else None
         )
-        if difference is None:
-            interpretation = "not_available"
-        elif abs(difference) <= 0.0005:
-            interpretation = "approximately_equal"
-        elif difference > 0:
-            interpretation = "outperformed_benchmark"
-        else:
-            interpretation = "underperformed_benchmark"
+        interpretation = interpret_benchmark_difference(difference)
         benchmark_row = {
             "ticker": instrument["secid"],
             "benchmark_ticker": benchmark_ticker,
@@ -551,13 +549,6 @@ def build_report_model(root: Path) -> dict:
         "instrument_period_returns": list(unique_period_returns.values()),
         "warnings": sorted(warnings, key=lambda item: (item["code"], item["message"])),
         "missing_data": sorted(set(missing_data)),
-        "histories": histories,
-        "market_units": {
-            item["secid"]: (
-                "dirty bond price, RUB per bond" if item["type"] == "bond" else "RUB per unit"
-            )
-            for item in by_id.values()
-        },
         "corporate_actions": [
             {"secid": item["secid"], **action}
             for item in by_id.values()
@@ -815,109 +806,6 @@ def build_market_summary(model: dict) -> dict:
     }
 
 
-def render_line_chart(
-    title: str,
-    rows: list[dict],
-    value_key: str,
-    comparison_rows: list[dict] | None = None,
-    unit_label: str | None = None,
-) -> str:
-    if len(rows) < 2:
-        raise OutputError(f"At least two rows are required for chart {title}")
-    width, height = 900, 450
-    left, right, top, bottom = 70, 25, 45, 75
-    values = [float(row[value_key]) for row in rows]
-    if not all(math.isfinite(value) for value in values):
-        raise OutputError(f"Non-finite chart value for {title}")
-    minimum, maximum = min(values), max(values)
-    if minimum == maximum:
-        minimum -= 1
-        maximum += 1
-
-    def points(series: list[dict], key: str) -> str:
-        series_values = [float(row[key]) for row in series]
-        result = []
-        for index, value in enumerate(series_values):
-            x = left + index * (width - left - right) / max(1, len(series_values) - 1)
-            y = top + (maximum - value) * (height - top - bottom) / (maximum - minimum)
-            result.append(f"{x:.2f},{y:.2f}")
-        return " ".join(result)
-
-    escaped = html.escape(title)
-    start, end = html.escape(rows[0]["date"]), html.escape(rows[-1]["date"])
-    comparison = ""
-    if comparison_rows:
-        comparison = f'<polyline fill="none" stroke="#d97706" stroke-width="2" points="{points(comparison_rows, value_key)}"/>'
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
-        '<rect width="100%" height="100%" fill="#ffffff"/>\n'
-        f'<text x="{left}" y="28" font-family="sans-serif" font-size="18">{escaped}</text>\n'
-        f'<line x1="{left}" y1="{height-bottom}" x2="{width-right}" y2="{height-bottom}" stroke="#555"/>\n'
-        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#555"/>\n'
-        f'<polyline fill="none" stroke="#2563eb" stroke-width="2" points="{points(rows, value_key)}"/>\n'
-        f'{comparison}\n'
-        f'<text x="{left}" y="{height-20}" font-family="sans-serif" font-size="12">{start}</text>\n'
-        f'<text x="{width-right-75}" y="{height-20}" font-family="sans-serif" font-size="12">{end}</text>\n'
-        f'<text x="8" y="{top+8}" font-family="sans-serif" font-size="12">{maximum:.4g}</text>\n'
-        f'<text x="8" y="{height-bottom}" font-family="sans-serif" font-size="12">{minimum:.4g}</text>\n'
-        f'<text x="{left}" y="{height-5}" font-family="sans-serif" font-size="11">Source: MOEX ISS. Last quote: {end}. Values: {html.escape(unit_label or value_key)}.</text>\n'
-        '</svg>\n'
-    )
-
-
-def render_multi_line_chart(title: str, series: dict[str, list[dict]], value_key: str) -> str:
-    usable = {label: rows for label, rows in series.items() if len(rows) >= 2}
-    if not usable:
-        raise OutputError(f"At least one two-point series is required for chart {title}")
-    width, height = 900, 450
-    left, right, top, bottom = 70, 140, 45, 75
-    all_dates = [date.fromisoformat(row["date"]) for rows in usable.values() for row in rows]
-    all_values = [float(row[value_key]) for rows in usable.values() for row in rows]
-    if not all(math.isfinite(value) for value in all_values):
-        raise OutputError(f"Non-finite chart value for {title}")
-    first_date, last_date = min(all_dates), max(all_dates)
-    minimum, maximum = min(all_values), max(all_values)
-    if minimum == maximum:
-        minimum -= 1
-        maximum += 1
-    day_span = max(1, (last_date - first_date).days)
-
-    def points(rows: list[dict]) -> str:
-        result = []
-        for row in rows:
-            row_date = date.fromisoformat(row["date"])
-            value = float(row[value_key])
-            x = left + (row_date - first_date).days * (width - left - right) / day_span
-            y = top + (maximum - value) * (height - top - bottom) / (maximum - minimum)
-            result.append(f"{x:.2f},{y:.2f}")
-        return " ".join(result)
-
-    colors = ("#2563eb", "#d97706", "#059669", "#dc2626", "#7c3aed", "#0891b2")
-    paths = []
-    legends = []
-    for index, (label, rows) in enumerate(sorted(usable.items())):
-        color = colors[index % len(colors)]
-        paths.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points(rows)}"/>')
-        legend_y = top + index * 22
-        legends.append(f'<line x1="{width-right+15}" y1="{legend_y}" x2="{width-right+35}" y2="{legend_y}" stroke="{color}" stroke-width="2"/>')
-        legends.append(f'<text x="{width-right+42}" y="{legend_y+4}" font-family="sans-serif" font-size="12">{html.escape(label)}</text>')
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
-        '<rect width="100%" height="100%" fill="#ffffff"/>\n'
-        f'<text x="{left}" y="28" font-family="sans-serif" font-size="18">{html.escape(title)}</text>\n'
-        f'<line x1="{left}" y1="{height-bottom}" x2="{width-right}" y2="{height-bottom}" stroke="#555"/>\n'
-        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#555"/>\n'
-        + "\n".join(paths + legends)
-        + "\n"
-        + f'<text x="{left}" y="{height-20}" font-family="sans-serif" font-size="12">{first_date.isoformat()}</text>\n'
-        + f'<text x="{width-right-75}" y="{height-20}" font-family="sans-serif" font-size="12">{last_date.isoformat()}</text>\n'
-        + f'<text x="8" y="{top+8}" font-family="sans-serif" font-size="12">{maximum:.4g}</text>\n'
-        + f'<text x="8" y="{height-bottom}" font-family="sans-serif" font-size="12">{minimum:.4g}</text>\n'
-        + f'<text x="{left}" y="{height-5}" font-family="sans-serif" font-size="11">Source: MOEX ISS. Last quote: {last_date.isoformat()}. Values: normalized index.</text>\n'
-        + '</svg>\n'
-    )
-
-
 def render_bar_chart(title: str, categories: list[tuple[str, float]], unit: str) -> str:
     if not categories:
         raise OutputError(f"At least one category is required for chart {title}")
@@ -1021,11 +909,6 @@ def render_period_returns_chart(rows: list[dict]) -> str:
     )
     elements.append("</svg>")
     return "\n".join(elements) + "\n"
-
-
-def _normalized_rows(rows: list[dict]) -> list[dict]:
-    first = float(rows[0]["unit_value_rub"])
-    return [{"date": row["date"], "normalized": float(row["unit_value_rub"]) / first * 100} for row in rows]
 
 
 PORTFOLIO_DATA_FILES = (

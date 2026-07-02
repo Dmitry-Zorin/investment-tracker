@@ -14,8 +14,6 @@ from investment_tracker.performance_output import (
     build_market_summary,
     export_chatgpt,
     render_bar_chart,
-    render_line_chart,
-    render_multi_line_chart,
     render_period_returns_chart,
     render_performance_report,
     validate_portfolio_outputs,
@@ -162,20 +160,6 @@ class PerformanceOutputTests(unittest.TestCase):
         self.assertIn("Largest negative contribution: n/a", report)
         self.assertNotIn("recommendation: buy", report.lower())
         self.assertFalse(any(line.endswith(" ") for line in report.splitlines()))
-
-    def test_svg_contains_full_history_and_dates(self):
-        rows = [
-            {"date": "2026-06-01", "unit_value_rub": 10},
-            {"date": "2026-06-30", "unit_value_rub": 11},
-        ]
-
-        svg = render_line_chart("CASH", rows, "unit_value_rub", unit_label="RUB per unit")
-
-        self.assertIn("<svg", svg)
-        self.assertIn("2026-06-01", svg)
-        self.assertIn("2026-06-30", svg)
-        self.assertIn("Source: MOEX ISS", svg)
-        self.assertIn("Values: RUB per unit", svg)
 
     def test_summary_uses_null_for_missing_values(self):
         summary = build_market_summary(self.model)
@@ -349,18 +333,6 @@ class PerformanceOutputTests(unittest.TestCase):
         self.assertAlmostEqual(benchmark[0]["instrument_return_since_entry_pct"], result.simple_return)
         # Money-weighted terminal value = invested + profit + returned principal.
         self.assertAlmostEqual(benchmark[0]["result_vs_benchmark_rub"], 1200 - 1150)
-
-    def test_multi_line_chart_contains_each_named_series(self):
-        series = {
-            "CASH": [{"date": "2026-06-01", "normalized": 100}, {"date": "2026-06-30", "normalized": 101}],
-            "BOND": [{"date": "2026-06-01", "normalized": 100}, {"date": "2026-06-30", "normalized": 98}],
-        }
-
-        svg = render_multi_line_chart("Сравнение", series, "normalized")
-
-        self.assertIn(">CASH<", svg)
-        self.assertIn(">BOND<", svg)
-        self.assertEqual(svg.count("<polyline"), 2)
 
     def test_bar_chart_labels_every_category(self):
         svg = render_bar_chart(
