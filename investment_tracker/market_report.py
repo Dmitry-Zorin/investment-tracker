@@ -79,7 +79,7 @@ def command_build(args: argparse.Namespace) -> int:
     root = _root(args)
     model = build_report_model(root)
     write_outputs(root, model)
-    print(f"Built reports/performance.md for {model['latest_market_date']}")
+    print(f"Built reports/chatgpt-export/performance.md for {model['latest_market_date']}")
     return 0
 
 

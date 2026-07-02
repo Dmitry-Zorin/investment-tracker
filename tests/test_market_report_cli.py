@@ -82,6 +82,7 @@ class MarketReportCliTests(unittest.TestCase):
         after = {name: (self.root / name).read_bytes() for name in self.authoritative}
         self.assertEqual(after, before)
         self.assertTrue((self.root / "reports/chatgpt-export/performance.md").exists())
+        self.assertIn("reports/chatgpt-export/performance.md", completed.stdout)
 
     def test_check_reports_stale_market_data(self):
         completed = self.run_cli("check")
