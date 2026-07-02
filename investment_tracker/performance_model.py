@@ -70,6 +70,38 @@ def _normalized_series(rows: list[dict]) -> list[dict] | None:
     ]
 
 
+def _build_comparison_series(
+    entries: list[tuple[str, str, str]], histories: dict[str, list[dict]], end: str
+) -> dict[str, list[dict]]:
+    # entries: (secid, first_entry_date, benchmark_ticker) per held position.
+    # Rebase every held instrument and its benchmark to 100 at a common start
+    # date — the latest entry, so all lines share one comparable baseline — and
+    # draw each unique benchmark only once (a benchmark that is itself held, e.g.
+    # a money-market fund used as the benchmark for everything, is already drawn
+    # as an instrument line and is not duplicated).
+    if not entries:
+        return {}
+    common_start = max(first_date for _, first_date, _ in entries)
+    series: dict[str, list[dict]] = {}
+
+    def window(secid: str) -> list[dict]:
+        return [row for row in histories.get(secid, []) if common_start <= row["date"] <= end]
+
+    for secid, _, _ in entries:
+        if secid in series:
+            continue
+        normalized = _normalized_series(window(secid))
+        if normalized:
+            series[secid] = normalized
+    for _, _, benchmark_ticker in entries:
+        if not benchmark_ticker or benchmark_ticker in series:
+            continue
+        normalized = _normalized_series(window(benchmark_ticker))
+        if normalized:
+            series[benchmark_ticker] = normalized
+    return series
+
+
 def _latest_on_or_before(rows: list[dict], target: date) -> dict:
     eligible = [row for row in rows if date.fromisoformat(row["date"]) <= target]
     if not eligible:
@@ -244,7 +276,7 @@ def build_report_model(root: Path) -> dict:
     positions = []
     benchmark_comparison = []
     instrument_period_returns = []
-    normalized_series: dict[str, list[dict]] = {}
+    comparison_entries: list[tuple[str, str, str]] = []
     commissions_complete = True
     aci_complete = True
     benchmarks = sorted(
@@ -296,16 +328,7 @@ def build_report_model(root: Path) -> dict:
         first = _first_on_or_after(rows, result.first_trade_date)
         rows_since_entry = [row for row in rows if row["date"] >= first["date"] and row["date"] <= last["date"]]
         public_return = float(last["unit_value_rub"]) / float(first["unit_value_rub"]) - 1
-        instrument_series = _normalized_series(rows_since_entry)
-        if instrument_series and instrument["secid"] not in normalized_series:
-            normalized_series[instrument["secid"]] = instrument_series
-            if benchmark_ticker != instrument["secid"]:
-                benchmark_window = [
-                    row for row in benchmark_rows if first["date"] <= row["date"] <= last["date"]
-                ]
-                benchmark_series = _normalized_series(benchmark_window)
-                if benchmark_series:
-                    normalized_series[f"{benchmark_ticker} ({instrument['secid']})"] = benchmark_series
+        comparison_entries.append((instrument["secid"], first["date"], benchmark_ticker))
         # Only capital actually deployed into the market (buy cost bases) is
         # replayed into the benchmark. Taxes and other frictions are excluded:
         # they already reduce realized PnL and are not benchmark contributions,
@@ -428,6 +451,9 @@ def build_report_model(root: Path) -> dict:
                 "source": "brokerage_snapshot",
             }
         )
+    normalized_series = _build_comparison_series(
+        comparison_entries, histories, valuation_date.isoformat()
+    )
     calculation_date = date.today()
     age = (calculation_date - date.fromisoformat(latest_market_date)).days
     if age > 30:

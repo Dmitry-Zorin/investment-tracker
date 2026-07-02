@@ -176,8 +176,6 @@ def render_market_chart(instrument_analysis: dict, window: str) -> str:
         return top + (high - value) / (high - low) * panel_height
 
     primary = _points(rows, "analysis_value", left, price_top, plot_width, price_height, price_domain)
-    ma20 = _points(rows, "ma20", left, price_top, plot_width, price_height, price_domain)
-    ma60 = _points(rows, "ma60", left, price_top, plot_width, price_height, price_domain)
     title = f"{instrument_analysis['secid']}: {window}"
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" data-window="{html.escape(window)}">',
@@ -207,17 +205,33 @@ def render_market_chart(instrument_analysis: dict, window: str) -> str:
     for marker_class, row in marker_rows.items():
         parts.append(f'<circle class="{marker_class}" cx="{x_for(row["date"]):.2f}" cy="{y_for(float(row["analysis_value"]), price_domain, price_top, price_height):.2f}" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>')
     parts.extend([
-        f'<g clip-path="url(#price-clip)"><polyline fill="none" stroke="#2563eb" stroke-width="2.5" points="{primary}"/><polyline fill="none" stroke="#d97706" stroke-width="1.5" stroke-dasharray="6 4" points="{ma20}"/><polyline fill="none" stroke="#555" stroke-width="1.5" stroke-dasharray="2 4" points="{ma60}"/></g>',
-        f'<text x="{left}" y="{price_top + price_height + 42}" font-family="sans-serif" font-size="12">Минимум {metrics["minimum"]:.4g} ({metrics["minimum_date"]}); Максимум {metrics["maximum"]:.4g} ({metrics["maximum_date"]}); MA20; MA60</text>',
+        f'<g clip-path="url(#price-clip)"><polyline fill="none" stroke="#2563eb" stroke-width="2.5" points="{primary}"/></g>',
+        f'<text x="{left}" y="{price_top + price_height + 42}" font-family="sans-serif" font-size="12">Минимум {metrics["minimum"]:.4g} ({metrics["minimum_date"]}); Максимум {metrics["maximum"]:.4g} ({metrics["maximum_date"]})</text>',
         '</g>',
     ])
     if bond:
+        yield_top, yield_height = 520, 200
+        yield_bottom = yield_top + yield_height
         yield_rows = [row for row in rows if row.get("yield_close_percent") is not None]
         parts.append('<g id="yield-panel">')
         parts.append(f'<text x="{left}" y="500" font-family="sans-serif" font-size="14">Доходность к погашению, %</text>')
         if yield_rows:
             yield_domain = _domain([float(row["yield_close_percent"]) for row in yield_rows])
-            yield_points = _points(rows, "yield_close_percent", left, 520, plot_width, 200, yield_domain)
+            # Frame the panel like the price panel above: baseline, y-axis, gridlines
+            # and value/date ticks, so the yield line reads as its own sub-chart
+            # rather than a bare line floating below the price chart.
+            parts.append(f'<line x1="{left}" y1="{yield_bottom}" x2="{left + plot_width}" y2="{yield_bottom}" stroke="#777"/>')
+            parts.append(f'<line x1="{left}" y1="{yield_top}" x2="{left}" y2="{yield_bottom}" stroke="#777"/>')
+            for index in range(5):
+                fraction = index / 4
+                tick_date = first_date + (last_date - first_date) * fraction
+                tick_x = left + plot_width * fraction
+                tick_value = yield_domain[1] - (yield_domain[1] - yield_domain[0]) * fraction
+                tick_y = yield_top + yield_height * fraction
+                anchor = "start" if index == 0 else "end" if index == 4 else "middle"
+                parts.append(f'<g class="x-tick"><line x1="{tick_x:.2f}" y1="{yield_bottom}" x2="{tick_x:.2f}" y2="{yield_bottom + 5}" stroke="#999"/><text x="{tick_x:.2f}" y="{yield_bottom + 18}" text-anchor="{anchor}" font-family="sans-serif" font-size="10">{tick_date.isoformat()}</text></g>')
+                parts.append(f'<g class="y-tick"><line x1="{left - 5}" y1="{tick_y:.2f}" x2="{left + plot_width}" y2="{tick_y:.2f}" stroke="#e5e7eb"/><text x="{left - 9}" y="{tick_y + 4:.2f}" text-anchor="end" font-family="sans-serif" font-size="10">{tick_value:.4g}</text></g>')
+            yield_points = _points(rows, "yield_close_percent", left, yield_top, plot_width, yield_height, yield_domain)
             parts.append(f'<polyline fill="none" stroke="#7c3aed" stroke-width="2" points="{yield_points}"/>')
         else:
             parts.append(f'<text x="{left}" y="560" font-family="sans-serif" font-size="14">n/a</text>')

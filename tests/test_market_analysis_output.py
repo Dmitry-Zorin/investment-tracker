@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from datetime import date, timedelta
 
@@ -28,6 +29,25 @@ def rows(instrument_type="fund", count=90):
             row["yield_close"] = 15 - index / 100
         result.append(row)
     return result
+
+
+def panel_blocks(svg):
+    """Return {panel_id: inner_markup} for each <g id="...-panel"> ... </g>,
+    balancing nested <g> groups (clip groups, tick groups)."""
+    blocks = {}
+    for opening in re.finditer(r'<g id="([^"]*-panel)">', svg):
+        panel_id = opening.group(1)
+        start = opening.end()
+        depth = 1
+        for token in re.finditer(r"<g\b|</g>", svg[start:]):
+            if token.group() == "</g>":
+                depth -= 1
+                if depth == 0:
+                    blocks[panel_id] = svg[start:start + token.start()]
+                    break
+            else:
+                depth += 1
+    return blocks
 
 
 class MarketAnalysisOutputTests(unittest.TestCase):
@@ -88,8 +108,9 @@ class MarketAnalysisOutputTests(unittest.TestCase):
         self.assertIn('data-window="3m"', svg)
         self.assertIn("Минимум", svg)
         self.assertIn("Максимум", svg)
-        self.assertIn("MA20", svg)
-        self.assertIn('stroke-dasharray="6 4"', svg)
+        self.assertIn('stroke="#2563eb"', svg)
+        self.assertNotIn("MA20", svg)
+        self.assertNotIn("stroke-dasharray", svg)
         self.assertEqual(svg.count('class="x-tick"'), 5)
         self.assertEqual(svg.count('class="y-tick"'), 5)
         self.assertIn('class="minimum-marker"', svg)
@@ -104,6 +125,27 @@ class MarketAnalysisOutputTests(unittest.TestCase):
         self.assertIn('id="yield-panel"', svg)
         self.assertIn("Чистая цена", svg)
         self.assertIn("Доходность к погашению", svg)
+        # The yield panel is a framed sub-chart (baseline + y-axis + gridlines),
+        # not a bare line floating below the price chart.
+        self.assertIn('<line x1="90" y1="720" x2="940" y2="720"', svg)
+        self.assertIn('<line x1="90" y1="520" x2="90" y2="720"', svg)
+
+    def test_every_panel_with_a_line_has_axis_ticks(self):
+        # The flaw that shipped: a panel drew a data line but no axis, so the line
+        # floated "outside" any chart. Any panel that plots a <polyline> must also
+        # draw value ticks — an unframed line fails here instead of slipping past a
+        # human glance.
+        for analysis, window in ((self.bond, "1y"), (self.fund, "3m"), (self.bond, "all")):
+            svg = render_market_chart(analysis, window)
+            panels = panel_blocks(svg)
+            self.assertTrue(panels, "no chart panels found")
+            for panel_id, inner in panels.items():
+                if "<polyline" in inner:
+                    self.assertIn(
+                        'class="y-tick"',
+                        inner,
+                        f"{panel_id} ({analysis['secid']} {window}) plots a line but has no y-axis ticks",
+                    )
 
 
 if __name__ == "__main__":

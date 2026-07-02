@@ -360,6 +360,38 @@ class PerformanceOutputTests(unittest.TestCase):
         self.assertNotIn("<polyline", svg)
         self.assertIn("not available", svg)
 
+    def test_comparison_series_dedupes_shared_benchmark_at_common_start(self):
+        from datetime import date, timedelta
+
+        from investment_tracker.performance_model import _build_comparison_series
+
+        def history(values, start="2026-04-01"):
+            base = date.fromisoformat(start)
+            return [
+                {"date": (base + timedelta(days=i)).isoformat(), "unit_value_rub": value}
+                for i, value in enumerate(values)
+            ]
+
+        histories = {
+            "SBMM": history([10, 11, 12, 13, 14, 15]),
+            "SBFR": history([20, 21, 22, 23, 24, 25]),
+            "SBGD": history([30, 31, 32, 33, 34, 35]),
+        }
+        # All three benchmarked to SBMM; SBMM is itself held.
+        entries = [
+            ("SBFR", "2026-04-02", "SBMM"),
+            ("SBGD", "2026-04-04", "SBMM"),
+            ("SBMM", "2026-04-01", "SBMM"),
+        ]
+
+        series = _build_comparison_series(entries, histories, "2026-04-06")
+
+        # SBMM drawn once (its instrument line doubles as the benchmark), not per instrument.
+        self.assertEqual(sorted(series), ["SBFR", "SBGD", "SBMM"])
+        # Common start = latest entry date, and every series is rebased to 100 there.
+        self.assertTrue(all(points[0]["date"] == "2026-04-04" for points in series.values()))
+        self.assertTrue(all(abs(points[0]["normalized"] - 100.0) < 1e-9 for points in series.values()))
+
     def test_bar_chart_labels_every_category(self):
         svg = render_bar_chart(
             "Доходность",
