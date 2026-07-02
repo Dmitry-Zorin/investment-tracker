@@ -225,6 +225,19 @@ class PerformanceOutputTests(unittest.TestCase):
             self.assertEqual(rows[0]["ticker"], "CASH")
             self.assertEqual(rows[0]["accrued_coupon_income_rub"], "")
 
+    def test_report_escapes_pipe_and_newline_in_position_name(self):
+        # brokerage-supplied name is free-form; a pipe or newline must not be
+        # able to corrupt the Markdown positions table.
+        model = dict(self.model)
+        position = dict(self.model["positions"][0])
+        position["name"] = "Evil | Fund\nsecond line"
+        model["positions"] = [position]
+
+        report = render_performance_report(model)
+
+        self.assertIn(r"Evil \| Fund second line", report)
+        self.assertNotIn("Evil | Fund", report)
+
     def test_report_and_summary_disclose_split_adjustment(self):
         model = dict(self.model)
         model["corporate_actions"] = [
@@ -361,6 +374,17 @@ class PerformanceOutputTests(unittest.TestCase):
         self.assertIn(">GOV_BOND<", svg)
         self.assertIn(">CASH<", svg)
         self.assertEqual(svg.count("<rect class=\"bar\""), 3)
+
+    def test_bar_chart_rotates_long_labels_and_groups_values(self):
+        # Composed labels for several positions would overlap horizontally, so
+        # they must be rotated, and on-bar values use the same space-grouped
+        # thousands as the report tables.
+        categories = [(f"TICK{index} (1 234 567.89 RUB)", 1234567.89) for index in range(6)]
+
+        svg = render_bar_chart("Positions vs benchmark", categories, unit="RUB")
+
+        self.assertIn("rotate(-35", svg)
+        self.assertIn(">1 234 567.89<", svg)
 
     def test_period_returns_chart_uses_readable_ticker_period_grid(self):
         svg = render_period_returns_chart(

@@ -921,19 +921,25 @@ def render_multi_line_chart(title: str, series: dict[str, list[dict]], value_key
 def render_bar_chart(title: str, categories: list[tuple[str, float]], unit: str) -> str:
     if not categories:
         raise OutputError(f"At least one category is required for chart {title}")
-    width, height = 900, 450
-    left, right, top, bottom = 70, 25, 45, 95
+    width, height, left, right, top = 900, 450, 70, 25, 45
+    slot = (width - left - right) / len(categories)
+    # Rotate the x-axis labels when a horizontal label would not fit its slot,
+    # so composed labels like "TICKER (1 234 567.89 RUB)" stop overlapping once
+    # there are several categories; reserve extra bottom margin when rotated.
+    longest_label = max((len(str(label)) for label, _ in categories), default=0)
+    rotate_labels = longest_label * 7 > slot
+    bottom = 150 if rotate_labels else 60
     values = [float(value) for _, value in categories]
     minimum, maximum = min(0.0, min(values)), max(0.0, max(values))
     if minimum == maximum:
         maximum = minimum + 1
     plot_height = height - top - bottom
+    plot_bottom = height - bottom
 
     def y(value: float) -> float:
         return top + (maximum - value) * plot_height / (maximum - minimum)
 
     baseline = y(0)
-    slot = (width - left - right) / len(categories)
     bar_width = min(100, slot * 0.55)
     elements = []
     for index, (label, value) in enumerate(categories):
@@ -945,16 +951,28 @@ def render_bar_chart(title: str, categories: list[tuple[str, float]], unit: str)
         elements.append(
             f'<rect class="bar" x="{center-bar_width/2:.2f}" y="{bar_y:.2f}" width="{bar_width:.2f}" height="{bar_height:.2f}" fill="{color}"/>'
         )
+        label_y = plot_bottom + 16
+        escaped_label = html.escape(str(label))
+        if rotate_labels:
+            elements.append(
+                f'<text x="{center:.2f}" y="{label_y:.2f}" '
+                f'transform="rotate(-35 {center:.2f} {label_y:.2f})" '
+                f'text-anchor="end" font-family="sans-serif" font-size="12">{escaped_label}</text>'
+            )
+        else:
+            elements.append(
+                f'<text x="{center:.2f}" y="{label_y:.2f}" text-anchor="middle" font-family="sans-serif" font-size="12">{escaped_label}</text>'
+            )
         elements.append(
-            f'<text x="{center:.2f}" y="{height-bottom+25}" text-anchor="middle" font-family="sans-serif" font-size="12">{html.escape(label)}</text>'
-        )
-        elements.append(
-            f'<text x="{center:.2f}" y="{bar_y-6:.2f}" text-anchor="middle" font-family="sans-serif" font-size="12">{value:.2f}</text>'
+            f'<text x="{center:.2f}" y="{bar_y-6:.2f}" text-anchor="middle" font-family="sans-serif" font-size="12">{_fmt_money(value)}</text>'
         )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
         '<rect width="100%" height="100%" fill="#ffffff"/>\n'
         f'<text x="{left}" y="28" font-family="sans-serif" font-size="18">{html.escape(title)}</text>\n'
+        f'<line x1="{left}" y1="{top:.2f}" x2="{left}" y2="{plot_bottom:.2f}" stroke="#555"/>\n'
+        f'<text x="8" y="{top+8:.2f}" font-family="sans-serif" font-size="11">{_fmt_money(maximum)}</text>\n'
+        f'<text x="8" y="{plot_bottom:.2f}" font-family="sans-serif" font-size="11">{_fmt_money(minimum)}</text>\n'
         f'<line x1="{left}" y1="{baseline:.2f}" x2="{width-right}" y2="{baseline:.2f}" stroke="#555"/>\n'
         + "\n".join(elements)
         + "\n"
