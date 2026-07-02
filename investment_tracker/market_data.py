@@ -247,6 +247,9 @@ def read_market_csv(path: Path) -> list[dict]:
                 raise MarketDataError(
                     f"Invalid numeric value {row[key]!r} for {key} in {path.name}"
                 ) from error
+    # Guarantee chronological order so downstream latest/first-price lookups stay
+    # correct even for a hand-edited CSV (ISO date strings sort lexically).
+    rows.sort(key=lambda row: row["date"])
     return rows
 
 
@@ -255,6 +258,11 @@ def adjust_history_for_corporate_actions(rows: list[dict], actions: list[dict] |
     for action in sorted(actions or [], key=lambda item: item.get("effective_date", ""), reverse=True):
         if action.get("type") != "split":
             raise MarketDataError(f"Unsupported corporate action: {action.get('type')}")
+        if any("yield_close" in row for row in adjusted):
+            # A bond's unit_value_rub bundles accrued interest with the clean
+            # price; scaling the whole value would corrupt the accrued-interest
+            # component, so reject rather than apply a dimensionally wrong split.
+            raise MarketDataError("Split adjustment is not supported for bonds")
         effective_date = action.get("effective_date")
         ratio = action.get("ratio")
         if not isinstance(effective_date, str) or not effective_date:

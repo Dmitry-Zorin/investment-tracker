@@ -98,6 +98,30 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual(adjusted[1]["unit_value_rub"], 11.28)
         self.assertEqual(rows[0]["unit_value_rub"], 1127.4)
 
+    def test_split_adjustment_rejected_for_bonds(self):
+        bond_rows = [
+            {"date": "2021-05-31", "close": 100.0, "unit_value_rub": 1050.0, "accrued_interest": 50.0, "yield_close": 8.0},
+        ]
+
+        with self.assertRaises(MarketDataError):
+            adjust_history_for_corporate_actions(
+                bond_rows, [{"type": "split", "effective_date": "2021-06-04", "ratio": 10}]
+            )
+
+    def test_read_sorts_rows_by_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "OUT.csv"
+            path.write_text(
+                "date,board_id,close,price_unit,accrued_interest,unit_value_rub,volume,value_rub\n"
+                "2026-06-22,TQTF,11,rub_per_unit,,11,1,11\n"
+                "2026-06-19,TQTF,10,rub_per_unit,,10,1,10\n",
+                encoding="utf-8",
+            )
+
+            rows = read_market_csv(path)
+
+        self.assertEqual([row["date"] for row in rows], ["2026-06-19", "2026-06-22"])
+
     def test_stitches_board_migration_without_duplicate_dates(self):
         rows, warnings = merge_board_rows(
             [
