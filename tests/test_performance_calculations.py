@@ -182,6 +182,25 @@ class PerformanceCalculationTests(unittest.TestCase):
 
         self.assertIsNone(calculate_ytd_return(rows))
 
+    def test_benchmark_contributions_exclude_tax_outflows(self):
+        # A standalone tax is friction, not capital deployed into the market, so
+        # it must not appear in the benchmark contribution flows. benchmark
+        # invested stays equal to total_invested (buy bases only); the tax still
+        # reduces realized PnL.
+        transactions = [
+            {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-01-01", "quantity": 10, "deal_amount": 1000},
+            {"instrument_id": "X", "ticker": "X", "event_type": "tax", "event_date": "2026-03-01", "amount": 40},
+        ]
+
+        result = calculate_position(transactions, 100, date(2026, 7, 1))
+
+        self.assertEqual(result.contribution_flows, ((date(2026, 1, 1), 1000),))
+        self.assertAlmostEqual(result.total_invested, 1000)
+        self.assertAlmostEqual(result.realized_pnl, -40)
+        self.assertAlmostEqual(
+            sum(amount for _, amount in result.contribution_flows), result.total_invested
+        )
+
     def test_benchmark_uses_each_contribution_date(self):
         cash_flows = [(date(2026, 1, 1), 1000), (date(2026, 2, 1), 1000)]
         prices = [

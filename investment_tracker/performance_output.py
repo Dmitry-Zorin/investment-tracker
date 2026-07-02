@@ -305,7 +305,11 @@ def build_report_model(root: Path) -> dict:
         first = _first_on_or_after(rows, result.first_trade_date)
         rows_since_entry = [row for row in rows if row["date"] >= first["date"] and row["date"] <= last["date"]]
         public_return = float(last["unit_value_rub"]) / float(first["unit_value_rub"]) - 1
-        contribution_flows = [(flow_date, -amount) for flow_date, amount in result.cash_flows if amount < 0]
+        # Only capital actually deployed into the market (buy cost bases) is
+        # replayed into the benchmark. Taxes and other frictions are excluded:
+        # they already reduce realized PnL and are not benchmark contributions,
+        # so benchmark.invested stays equal to result.total_invested.
+        contribution_flows = list(result.contribution_flows)
         benchmark = None
         try:
             benchmark = benchmark_return(contribution_flows, benchmark_rows, valuation_date)

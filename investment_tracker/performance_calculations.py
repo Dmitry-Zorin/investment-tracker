@@ -32,6 +32,7 @@ class PositionResult:
     holding_days: int
     first_trade_date: date
     cash_flows: tuple[tuple[date, float], ...]
+    contribution_flows: tuple[tuple[date, float], ...]
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,7 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
     realized = 0.0
     total_invested = 0.0
     flows: list[tuple[date, float]] = []
+    contributions: list[tuple[date, float]] = []
     first_trade = date.fromisoformat(relevant[0]["event_date"])
     for event in relevant:
         event_date = date.fromisoformat(event["event_date"])
@@ -110,6 +112,7 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
             )
             lots.append([quantity, basis / quantity])
             total_invested += basis
+            contributions.append((event_date, basis))
             flows.append((event_date, -basis))
         elif event_type == "sell":
             remaining = _amount(event, "quantity")
@@ -173,6 +176,7 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
         holding_days=holding_days,
         first_trade_date=first_trade,
         cash_flows=tuple(flows),
+        contribution_flows=tuple(contributions),
     )
 
 
