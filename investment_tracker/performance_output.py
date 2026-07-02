@@ -364,12 +364,12 @@ def build_report_model(root: Path) -> dict:
             "benchmark_return_same_period_pct": benchmark_return_value,
             "difference_pct_points": difference * 100 if difference is not None else None,
             "result_vs_benchmark_rub": (
-                result.market_value + result.realized_pnl - benchmark.ending_value if benchmark else None
+                result.total_invested + result.total_pnl - benchmark.ending_value if benchmark else None
             ),
             "interpretation": interpretation,
             "limitations": [] if benchmark else ["Insufficient market history for exact lot-based comparison."],
-            "instrument_invested_rub": result.cost_basis,
-            "instrument_ending_value_rub": result.market_value + result.realized_pnl,
+            "instrument_invested_rub": result.total_invested,
+            "instrument_ending_value_rub": result.total_invested + result.total_pnl,
             "benchmark_invested_rub": benchmark.invested if benchmark else None,
             "benchmark_ending_value_rub": benchmark.ending_value if benchmark else None,
         }

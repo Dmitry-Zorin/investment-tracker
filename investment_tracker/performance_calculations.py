@@ -20,6 +20,7 @@ class PositionResult:
     secid: str
     quantity: float
     cost_basis: float
+    total_invested: float
     market_value: float
     current_nkd: float
     realized_pnl: float
@@ -77,6 +78,7 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
     secid = relevant[0].get("ticker") or relevant[0].get("secid") or instrument_id
     lots: list[list[float]] = []
     realized = 0.0
+    total_invested = 0.0
     flows: list[tuple[date, float]] = []
     first_trade = date.fromisoformat(relevant[0]["event_date"])
     for event in relevant:
@@ -94,6 +96,7 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
                 + _amount(event, "tax")
             )
             lots.append([quantity, basis / quantity])
+            total_invested += basis
             flows.append((event_date, -basis))
         elif event_type == "sell":
             remaining = _amount(event, "quantity")
@@ -129,7 +132,7 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
     market_value = quantity * float(latest_unit_value)
     unrealized = market_value - cost_basis
     total_pnl = realized + unrealized
-    simple_return = total_pnl / cost_basis if cost_basis else None
+    simple_return = total_pnl / total_invested if total_invested else None
     holding_days = max(0, (valuation_date - first_trade).days)
     annualized = None
     reason = None
@@ -145,6 +148,7 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
         secid=secid,
         quantity=quantity,
         cost_basis=cost_basis,
+        total_invested=total_invested,
         market_value=market_value,
         current_nkd=0.0,
         realized_pnl=realized,

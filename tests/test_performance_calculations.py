@@ -35,6 +35,67 @@ class PerformanceCalculationTests(unittest.TestCase):
         self.assertAlmostEqual(result.market_value, 1890)
         self.assertAlmostEqual(result.total_pnl, 19.5)
 
+    def test_buy_and_hold_return_uses_total_invested_equal_to_cost_basis(self):
+        # No sells: total_invested must equal cost_basis, so simple_return is
+        # unchanged versus the old open-lot-basis denominator (regression guard).
+        transactions = [
+            {
+                "instrument_id": "FUND1",
+                "ticker": "FUND",
+                "event_type": "buy",
+                "event_date": "2026-06-01",
+                "quantity": 100,
+                "deal_amount": 1868,
+                "paid_nkd": 0,
+                "broker_fee": 2,
+                "exchange_fee": 0.5,
+                "tax": 0,
+            }
+        ]
+
+        result = calculate_position(transactions, 18.9, date(2026, 7, 1))
+
+        self.assertAlmostEqual(result.total_invested, 1870.5)
+        self.assertAlmostEqual(result.cost_basis, 1870.5)
+        self.assertAlmostEqual(result.simple_return, 19.5 / 1870.5)
+
+    def test_partial_sale_return_measured_against_total_invested(self):
+        # Buy 10 @ basis 1000, later sell 5 (FIFO removes basis 500,
+        # proceeds 600 -> realized 100), mark remaining 5 lots at 120.
+        # total_invested stays 1000; open-lot cost_basis shrinks to 500.
+        transactions = [
+            {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-01-01", "quantity": 10, "deal_amount": 1000},
+            {"instrument_id": "X", "ticker": "X", "event_type": "sell", "event_date": "2026-03-01", "quantity": 5, "deal_amount": 600},
+        ]
+
+        result = calculate_position(transactions, 120, date(2026, 7, 1))
+
+        self.assertAlmostEqual(result.total_invested, 1000)
+        self.assertAlmostEqual(result.cost_basis, 500)
+        self.assertAlmostEqual(result.realized_pnl, 100)
+        self.assertAlmostEqual(result.unrealized_pnl, 100)
+        self.assertAlmostEqual(result.total_pnl, 200)
+        self.assertAlmostEqual(result.simple_return, 200 / 1000)
+        # Guard against the old bug that divided by the shrunken open-lot basis.
+        self.assertNotAlmostEqual(result.simple_return, 200 / 500)
+
+    def test_fully_closed_position_reports_real_return_not_none(self):
+        # Buy 10 @ basis 1000, sell all 10 for 1300 -> realized 300.
+        # No open lots: cost_basis == 0, but total_invested == 1000.
+        transactions = [
+            {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-01-01", "quantity": 10, "deal_amount": 1000},
+            {"instrument_id": "X", "ticker": "X", "event_type": "sell", "event_date": "2026-03-01", "quantity": 10, "deal_amount": 1300},
+        ]
+
+        result = calculate_position(transactions, 130, date(2026, 7, 1))
+
+        self.assertEqual(result.quantity, 0)
+        self.assertAlmostEqual(result.cost_basis, 0)
+        self.assertAlmostEqual(result.total_invested, 1000)
+        self.assertAlmostEqual(result.total_pnl, 300)
+        self.assertIsNotNone(result.simple_return)
+        self.assertAlmostEqual(result.simple_return, 300 / 1000)
+
     def test_fifo_sale_removes_oldest_lot(self):
         transactions = [
             {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-01-01", "quantity": 10, "deal_amount": 100},

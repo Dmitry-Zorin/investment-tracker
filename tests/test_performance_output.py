@@ -4,8 +4,10 @@ import json
 import tempfile
 import unittest
 import zipfile
+from datetime import date
 from pathlib import Path
 
+from investment_tracker.performance_calculations import calculate_position
 from investment_tracker.performance_output import (
     _transactions_for_position,
     aggregate_ticker_views,
@@ -291,6 +293,44 @@ class PerformanceOutputTests(unittest.TestCase):
         self.assertEqual(len(benchmark), 1)
         self.assertEqual(benchmark[0]["entry_date"], "2026-06-10")
         self.assertAlmostEqual(benchmark[0]["result_vs_benchmark_rub"], -5)
+
+    def test_aggregate_instrument_return_matches_position_simple_return_after_partial_sale(self):
+        # A partially-sold position: buy 10 @ basis 1000, sell 5 (realized 100),
+        # remaining 5 lots marked at 120 (unrealized 100) -> total_pnl 200,
+        # total_invested 1000, simple_return 0.20. The per-position benchmark row
+        # must roll up so the aggregate instrument return equals simple_return.
+        transactions = [
+            {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-01-01", "quantity": 10, "deal_amount": 1000},
+            {"instrument_id": "X", "ticker": "X", "event_type": "sell", "event_date": "2026-03-01", "quantity": 5, "deal_amount": 600},
+        ]
+        result = calculate_position(transactions, 120, date(2026, 7, 1))
+        self.assertAlmostEqual(result.simple_return, 0.20)
+
+        # Build the benchmark row with the same corrected fields build_report_model uses.
+        comparisons = [
+            {
+                "ticker": "X",
+                "benchmark_ticker": "BENCH",
+                "entry_date": "2026-01-01",
+                "method": "lot_based",
+                "instrument_invested_rub": result.total_invested,
+                "instrument_ending_value_rub": result.total_invested + result.total_pnl,
+                "benchmark_invested_rub": 1000,
+                "benchmark_ending_value_rub": 1150,
+                "limitations": [],
+            }
+        ]
+        positions = [{"ticker": "X", "cost_basis": result.cost_basis, "confirmed_pnl": result.total_pnl}]
+
+        _pnl, benchmark = aggregate_ticker_views(
+            positions, comparisons, total_pnl=result.total_pnl, total_portfolio_value=10000
+        )
+
+        self.assertEqual(len(benchmark), 1)
+        # Aggregate instrument return must exactly equal the per-position simple_return.
+        self.assertAlmostEqual(benchmark[0]["instrument_return_since_entry_pct"], result.simple_return)
+        # Money-weighted terminal value = invested + profit + returned principal.
+        self.assertAlmostEqual(benchmark[0]["result_vs_benchmark_rub"], 1200 - 1150)
 
     def test_multi_line_chart_contains_each_named_series(self):
         series = {
