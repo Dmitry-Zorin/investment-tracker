@@ -57,6 +57,19 @@ def _safe_float(value: object) -> float:
     return 0.0 if value is None else float(value)
 
 
+def _normalized_series(rows: list[dict]) -> list[dict] | None:
+    # Index a price series to 100 at its first point, for the comparison chart.
+    if len(rows) < 2:
+        return None
+    base = float(rows[0]["unit_value_rub"])
+    if not base:
+        return None
+    return [
+        {"date": row["date"], "normalized": float(row["unit_value_rub"]) / base * 100}
+        for row in rows
+    ]
+
+
 def _latest_on_or_before(rows: list[dict], target: date) -> dict:
     eligible = [row for row in rows if date.fromisoformat(row["date"]) <= target]
     if not eligible:
@@ -231,6 +244,7 @@ def build_report_model(root: Path) -> dict:
     positions = []
     benchmark_comparison = []
     instrument_period_returns = []
+    normalized_series: dict[str, list[dict]] = {}
     commissions_complete = True
     aci_complete = True
     benchmarks = sorted(
@@ -282,6 +296,16 @@ def build_report_model(root: Path) -> dict:
         first = _first_on_or_after(rows, result.first_trade_date)
         rows_since_entry = [row for row in rows if row["date"] >= first["date"] and row["date"] <= last["date"]]
         public_return = float(last["unit_value_rub"]) / float(first["unit_value_rub"]) - 1
+        instrument_series = _normalized_series(rows_since_entry)
+        if instrument_series and instrument["secid"] not in normalized_series:
+            normalized_series[instrument["secid"]] = instrument_series
+            if benchmark_ticker != instrument["secid"]:
+                benchmark_window = [
+                    row for row in benchmark_rows if first["date"] <= row["date"] <= last["date"]
+                ]
+                benchmark_series = _normalized_series(benchmark_window)
+                if benchmark_series:
+                    normalized_series[f"{benchmark_ticker} ({instrument['secid']})"] = benchmark_series
         # Only capital actually deployed into the market (buy cost bases) is
         # replayed into the benchmark. Taxes and other frictions are excluded:
         # they already reduce realized PnL and are not benchmark contributions,
@@ -512,6 +536,7 @@ def build_report_model(root: Path) -> dict:
         "pnl_contribution": pnl_contribution,
         "benchmark_comparison": benchmark_comparison,
         "instrument_period_returns": list(unique_period_returns.values()),
+        "normalized_series": normalized_series,
         "warnings": sorted(warnings, key=lambda item: (item["code"], item["message"])),
         "missing_data": sorted(set(missing_data)),
         "corporate_actions": [

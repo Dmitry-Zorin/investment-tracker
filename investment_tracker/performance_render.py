@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import html
+import math
+from datetime import date
 
 from investment_tracker.performance_model import OutputError
 
@@ -181,6 +183,7 @@ def render_performance_report(model: dict) -> str:
             "- `positions-vs-benchmark.svg` — lot-based result difference versus each configured benchmark.",
             "- `instruments-period-returns.svg` — 1m/3m/6m/12m/YTD returns by instrument.",
             "- `pnl-contribution.svg` — confirmed contribution of each instrument to total PnL.",
+            "- `instruments-vs-benchmark.svg` — each instrument and its benchmark indexed to 100 over the holding period.",
             "",
             "## 11. Data limitations",
             "",
@@ -318,3 +321,65 @@ def render_period_returns_chart(rows: list[dict]) -> str:
     )
     elements.append("</svg>")
     return "\n".join(elements) + "\n"
+
+
+def render_multi_line_chart(title: str, series: dict[str, list[dict]], value_key: str) -> str:
+    width, height = 900, 450
+    left, right, top, bottom = 70, 170, 45, 75
+    usable = {label: rows for label, rows in series.items() if len(rows) >= 2}
+    if not usable:
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
+            '<rect width="100%" height="100%" fill="#ffffff"/>\n'
+            f'<text x="{left}" y="28" font-family="sans-serif" font-size="18">{html.escape(title)}</text>\n'
+            f'<text x="{left}" y="{height // 2}" font-family="sans-serif" font-size="14">not available</text>\n'
+            '</svg>\n'
+        )
+    all_dates = [date.fromisoformat(row["date"]) for rows in usable.values() for row in rows]
+    all_values = [float(row[value_key]) for rows in usable.values() for row in rows]
+    if not all(math.isfinite(value) for value in all_values):
+        raise OutputError(f"Non-finite chart value for {title}")
+    first_date, last_date = min(all_dates), max(all_dates)
+    minimum, maximum = min(all_values), max(all_values)
+    if minimum == maximum:
+        minimum -= 1
+        maximum += 1
+    day_span = max(1, (last_date - first_date).days)
+
+    def points(rows: list[dict]) -> str:
+        result = []
+        for row in rows:
+            row_date = date.fromisoformat(row["date"])
+            value = float(row[value_key])
+            x = left + (row_date - first_date).days * (width - left - right) / day_span
+            y = top + (maximum - value) * (height - top - bottom) / (maximum - minimum)
+            result.append(f"{x:.2f},{y:.2f}")
+        return " ".join(result)
+
+    colors = ("#2563eb", "#d97706", "#059669", "#dc2626", "#7c3aed", "#0891b2")
+    elements = []
+    for index, (label, rows) in enumerate(sorted(usable.items())):
+        color = colors[index % len(colors)]
+        elements.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points(rows)}"/>')
+        legend_y = top + index * 20
+        elements.append(
+            f'<line x1="{width-right+15}" y1="{legend_y}" x2="{width-right+35}" y2="{legend_y}" stroke="{color}" stroke-width="2"/>'
+        )
+        elements.append(
+            f'<text x="{width-right+42}" y="{legend_y+4}" font-family="sans-serif" font-size="12">{html.escape(label)}</text>'
+        )
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
+        '<rect width="100%" height="100%" fill="#ffffff"/>\n'
+        f'<text x="{left}" y="28" font-family="sans-serif" font-size="18">{html.escape(title)}</text>\n'
+        f'<line x1="{left}" y1="{height-bottom}" x2="{width-right}" y2="{height-bottom}" stroke="#555"/>\n'
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#555"/>\n'
+        + "\n".join(elements)
+        + "\n"
+        + f'<text x="{left}" y="{height-20}" font-family="sans-serif" font-size="12">{first_date.isoformat()}</text>\n'
+        + f'<text x="{width-right-75}" y="{height-20}" font-family="sans-serif" font-size="12">{last_date.isoformat()}</text>\n'
+        + f'<text x="8" y="{top+8}" font-family="sans-serif" font-size="12">{maximum:.4g}</text>\n'
+        + f'<text x="8" y="{height-bottom}" font-family="sans-serif" font-size="12">{minimum:.4g}</text>\n'
+        + f'<text x="{left}" y="{height-5}" font-family="sans-serif" font-size="11">Source: MOEX ISS. Indexed to 100 at each series start.</text>\n'
+        + '</svg>\n'
+    )

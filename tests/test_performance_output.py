@@ -14,6 +14,7 @@ from investment_tracker.performance_output import (
     build_market_summary,
     export_chatgpt,
     render_bar_chart,
+    render_multi_line_chart,
     render_period_returns_chart,
     render_performance_report,
     validate_portfolio_outputs,
@@ -196,6 +197,7 @@ class PerformanceOutputTests(unittest.TestCase):
                 "positions-vs-benchmark.svg",
                 "instruments-period-returns.svg",
                 "pnl-contribution.svg",
+                "instruments-vs-benchmark.svg",
             }
             package = root / "reports/chatgpt-export"
             self.assertEqual({path.name for path in (package / "data").iterdir()}, data_files)
@@ -334,6 +336,30 @@ class PerformanceOutputTests(unittest.TestCase):
         # Money-weighted terminal value = invested + profit + returned principal.
         self.assertAlmostEqual(benchmark[0]["result_vs_benchmark_rub"], 1200 - 1150)
 
+    def test_multi_line_chart_plots_each_named_series(self):
+        series = {
+            "SBGB": [
+                {"date": "2026-01-01", "normalized": 100.0},
+                {"date": "2026-02-01", "normalized": 108.0},
+            ],
+            "LQDT (SBGB)": [
+                {"date": "2026-01-01", "normalized": 100.0},
+                {"date": "2026-02-01", "normalized": 103.0},
+            ],
+        }
+
+        svg = render_multi_line_chart("Instrument performance", series, "normalized")
+
+        self.assertEqual(svg.count("<polyline"), 2)
+        self.assertIn(">SBGB<", svg)
+        self.assertIn("LQDT (SBGB)", svg)
+
+    def test_multi_line_chart_without_usable_series_is_placeholder(self):
+        svg = render_multi_line_chart("Instrument performance", {"X": [{"date": "2026-01-01", "normalized": 100.0}]}, "normalized")
+
+        self.assertNotIn("<polyline", svg)
+        self.assertIn("not available", svg)
+
     def test_bar_chart_labels_every_category(self):
         svg = render_bar_chart(
             "Доходность",
@@ -403,6 +429,7 @@ class PerformanceOutputTests(unittest.TestCase):
                     "positions-vs-benchmark.svg",
                     "instruments-period-returns.svg",
                     "pnl-contribution.svg",
+                    "instruments-vs-benchmark.svg",
                 )),
             }
             self.assertEqual(names, expected)

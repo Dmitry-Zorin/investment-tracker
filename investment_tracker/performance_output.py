@@ -25,6 +25,7 @@ from investment_tracker.performance_render import (
     _fmt_percent,
     _md_cell,
     render_bar_chart,
+    render_multi_line_chart,
     render_performance_report,
     render_period_returns_chart,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "export_chatgpt",
     "interpret_benchmark_difference",
     "render_bar_chart",
+    "render_multi_line_chart",
     "render_performance_report",
     "render_period_returns_chart",
     "validate_portfolio_outputs",

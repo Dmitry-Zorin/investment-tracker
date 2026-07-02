@@ -13,6 +13,7 @@ from investment_tracker.io_utils import atomic_write, sha256_file
 from investment_tracker.performance_model import OutputError, build_market_summary
 from investment_tracker.performance_render import (
     render_bar_chart,
+    render_multi_line_chart,
     render_performance_report,
     render_period_returns_chart,
 )
@@ -34,6 +35,7 @@ PORTFOLIO_CHART_FILES = (
     "positions-vs-benchmark.svg",
     "instruments-period-returns.svg",
     "pnl-contribution.svg",
+    "instruments-vs-benchmark.svg",
 )
 
 CSV_SCHEMAS = {
@@ -337,6 +339,14 @@ def _write_portfolio_charts(package: Path, model: dict) -> None:
             "Confirmed PnL contribution",
             contribution_values,
             "RUB; source: brokerage snapshot",
+        ),
+    )
+    atomic_write(
+        charts / "instruments-vs-benchmark.svg",
+        render_multi_line_chart(
+            "Instrument performance vs benchmark (indexed to 100)",
+            model.get("normalized_series", {}),
+            "normalized",
         ),
     )
 
