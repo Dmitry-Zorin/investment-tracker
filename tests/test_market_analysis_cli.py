@@ -45,10 +45,11 @@ class MarketAnalysisCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertFalse((self.root / "reports/market-analysis.zip").exists())
 
-    def test_export_creates_only_expected_zip(self):
+    def test_export_creates_matching_directory_and_zip(self):
         completed = self.run_cli("export-market-analysis")
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertFalse((self.root / "reports/market-analysis").exists())
+        export = self.root / "reports/market-analysis"
+        self.assertTrue(export.exists())
         with zipfile.ZipFile(self.root / "reports/market-analysis.zip") as archive:
             names = set(archive.namelist())
             self.assertIn("market-analysis/analysis.md", names)
@@ -56,6 +57,12 @@ class MarketAnalysisCliTests(unittest.TestCase):
             self.assertIn("market-analysis/data/FUND.csv", names)
             self.assertIn("market-analysis/charts/FUND-3m.svg", names)
             self.assertEqual(len([name for name in names if name.endswith(".svg")]), 4)
+        directory_names = {
+            f"market-analysis/{path.relative_to(export)}"
+            for path in export.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(names, directory_names)
 
     def test_no_enabled_instruments_fails_without_traceback(self):
         (self.root / "data/market/manifest.json").write_text(

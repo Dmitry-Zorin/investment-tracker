@@ -213,9 +213,14 @@ class PerformanceOutputTests(unittest.TestCase):
                 "instruments-period-returns.svg",
                 "pnl-contribution.svg",
             }
-            self.assertEqual({path.name for path in (root / "reports/data").iterdir()}, data_files)
-            self.assertTrue(chart_files.issubset({path.name for path in (root / "reports/charts").iterdir()}))
-            with (root / "reports/data/positions.csv").open(encoding="utf-8", newline="") as handle:
+            package = root / "reports/chatgpt-export"
+            self.assertEqual({path.name for path in (package / "data").iterdir()}, data_files)
+            self.assertEqual({path.name for path in (package / "charts").iterdir()}, chart_files)
+            self.assertTrue((package / "performance.md").exists())
+            self.assertTrue((package / "market-summary.json").exists())
+            self.assertFalse((root / "reports/data").exists())
+            self.assertFalse((root / "reports/charts").exists())
+            with (package / "data/positions.csv").open(encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle))
             self.assertEqual(rows[0]["ticker"], "CASH")
             self.assertEqual(rows[0]["accrued_coupon_income_rub"], "")
@@ -381,7 +386,7 @@ class PerformanceOutputTests(unittest.TestCase):
             export_chatgpt(root)
 
             export = root / "reports/chatgpt-export"
-            self.assertFalse(export.exists())
+            self.assertTrue(export.exists())
             archive = root / "reports/chatgpt-export.zip"
             self.assertTrue(archive.exists())
             with zipfile.ZipFile(archive) as zipped:
@@ -405,6 +410,12 @@ class PerformanceOutputTests(unittest.TestCase):
                 )),
             }
             self.assertEqual(names, expected)
+            directory_names = {
+                f"chatgpt-export/{path.relative_to(export)}"
+                for path in export.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(names, directory_names)
             self.assertTrue(all("__MACOSX" not in name and ".DS_Store" not in name for name in names))
 
     def test_validation_checks_schema_content_and_source_hashes(self):
@@ -424,9 +435,11 @@ class PerformanceOutputTests(unittest.TestCase):
 
             self.assertEqual(validate_portfolio_outputs(root), [])
 
-            summary = json.loads((root / "reports/market-summary.json").read_text(encoding="utf-8"))
+            summary = json.loads((root / "reports/chatgpt-export/market-summary.json").read_text(encoding="utf-8"))
             summary["metadata"].pop("purpose")
-            (root / "reports/market-summary.json").write_text(json.dumps(summary), encoding="utf-8")
+            (root / "reports/chatgpt-export/market-summary.json").write_text(
+                json.dumps(summary), encoding="utf-8"
+            )
             self.assertIn("missing metadata purpose", validate_portfolio_outputs(root))
 
     def test_validation_rejects_quality_gaps_and_trading_actions(self):
@@ -443,7 +456,7 @@ class PerformanceOutputTests(unittest.TestCase):
                 }
             ]
             write_outputs(root, model)
-            path = root / "reports/market-summary.json"
+            path = root / "reports/chatgpt-export/market-summary.json"
             baseline = json.loads(path.read_text(encoding="utf-8"))
 
             cases = [

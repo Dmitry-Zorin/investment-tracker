@@ -254,28 +254,27 @@ def export_market_analysis(root: Path, model: dict) -> Path:
     if stale.exists():
         shutil.rmtree(stale)
     archive = reports / "market-analysis.zip"
-    with tempfile.TemporaryDirectory(dir=reports) as directory:
-        package = Path(directory) / "market-analysis"
-        (package / "data").mkdir(parents=True)
-        (package / "charts").mkdir()
-        (package / "analysis.md").write_text(render_analysis_markdown(model), encoding="utf-8")
-        (package / "market-analysis.json").write_text(json.dumps(serializable_summary(model), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        for instrument in model["instruments"]:
-            secid = instrument["secid"]
-            (package / "data" / f"{secid}.csv").write_text(render_analytical_csv(instrument), encoding="utf-8")
-            for window in ("all", "5y", "1y", "3m"):
-                (package / "charts" / f"{secid}-{window}.svg").write_text(render_market_chart(instrument, window), encoding="utf-8")
-        with tempfile.NamedTemporaryFile(dir=reports, suffix=".zip", delete=False) as handle:
-            temporary = Path(handle.name)
-        try:
-            with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as zipped:
-                for path in sorted(package.rglob("*")):
-                    if path.is_file():
-                        zipped.write(path, Path("market-analysis") / path.relative_to(package))
-            with zipfile.ZipFile(temporary) as zipped:
-                json.loads(zipped.read("market-analysis/market-analysis.json"))
-            temporary.replace(archive)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+    package = stale
+    (package / "data").mkdir(parents=True)
+    (package / "charts").mkdir()
+    (package / "analysis.md").write_text(render_analysis_markdown(model), encoding="utf-8")
+    (package / "market-analysis.json").write_text(json.dumps(serializable_summary(model), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for instrument in model["instruments"]:
+        secid = instrument["secid"]
+        (package / "data" / f"{secid}.csv").write_text(render_analytical_csv(instrument), encoding="utf-8")
+        for window in ("all", "5y", "1y", "3m"):
+            (package / "charts" / f"{secid}-{window}.svg").write_text(render_market_chart(instrument, window), encoding="utf-8")
+    with tempfile.NamedTemporaryFile(dir=reports, suffix=".zip", delete=False) as handle:
+        temporary = Path(handle.name)
+    try:
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as zipped:
+            for path in sorted(package.rglob("*")):
+                if path.is_file():
+                    zipped.write(path, Path("market-analysis") / path.relative_to(package))
+        with zipfile.ZipFile(temporary) as zipped:
+            json.loads(zipped.read("market-analysis/market-analysis.json"))
+        temporary.replace(archive)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     return archive

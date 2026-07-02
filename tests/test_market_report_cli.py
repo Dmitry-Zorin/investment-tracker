@@ -81,7 +81,7 @@ class MarketReportCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         after = {name: (self.root / name).read_bytes() for name in self.authoritative}
         self.assertEqual(after, before)
-        self.assertTrue((self.root / "reports/performance.md").exists())
+        self.assertTrue((self.root / "reports/chatgpt-export/performance.md").exists())
 
     def test_check_reports_stale_market_data(self):
         completed = self.run_cli("check")
@@ -156,7 +156,7 @@ class MarketReportCliTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         export = self.root / "reports/chatgpt-export"
-        self.assertFalse(export.exists())
+        self.assertTrue(export.exists())
         self.assertTrue((self.root / "reports/chatgpt-export.zip").exists())
         self.assertIn("reports/chatgpt-export.zip", completed.stdout)
 

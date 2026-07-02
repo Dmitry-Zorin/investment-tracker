@@ -75,6 +75,13 @@ def _fmt_percent(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.2f}%"
 
 
+def _md_cell(value: object) -> str:
+    # Neutralize characters that would break a Markdown table row: escape the
+    # column separator and collapse newlines. brokerage-supplied free-form
+    # strings (name, account id, asset type) are otherwise interpolated raw.
+    return str(value).replace("|", r"\|").replace("\r", " ").replace("\n", " ")
+
+
 def _safe_float(value: object) -> float:
     return 0.0 if value is None else float(value)
 
@@ -649,8 +656,8 @@ def render_performance_report(model: dict) -> str:
     ]
     for position in model["positions"]:
         lines.append(
-            f"| {position.get('account_alias', position['account_id'])} | {position['ticker']} | {position['name']} | "
-            f"{position.get('asset_class', position['asset_type'])} | {position['quantity']:g} | "
+            f"| {_md_cell(position.get('account_alias', position['account_id']))} | {_md_cell(position['ticker'])} | {_md_cell(position['name'])} | "
+            f"{_md_cell(position.get('asset_class', position['asset_type']))} | {position['quantity']:g} | "
             f"{_fmt_money(position['cost_basis'])} | {_fmt_money(position['confirmed_value'])} | "
             f"{_fmt_money(position['confirmed_pnl'])} | {_fmt_percent(position['confirmed_return'])} | "
             f"{position.get('first_entry_date', position.get('first_trade_date'))} | {position.get('last_entry_date', 'n/a')} | "
@@ -1044,12 +1051,13 @@ CSV_SCHEMAS = {
 
 def validate_portfolio_outputs(root: Path) -> list[str]:
     reports = root / "reports"
+    package = reports / "chatgpt-export"
     errors: list[str] = []
     required = [
-        reports / "performance.md",
-        reports / "market-summary.json",
-        *(reports / "data" / name for name in PORTFOLIO_DATA_FILES),
-        *(reports / "charts" / name for name in PORTFOLIO_CHART_FILES),
+        package / "performance.md",
+        package / "market-summary.json",
+        *(package / "data" / name for name in PORTFOLIO_DATA_FILES),
+        *(package / "charts" / name for name in PORTFOLIO_CHART_FILES),
     ]
     for path in required:
         if not path.is_file():
@@ -1057,7 +1065,7 @@ def validate_portfolio_outputs(root: Path) -> list[str]:
     if errors:
         return errors
     try:
-        summary = json.loads((reports / "market-summary.json").read_text(encoding="utf-8"))
+        summary = json.loads((package / "market-summary.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         return [f"invalid market-summary.json: {error}"]
     required_roots = {
@@ -1128,7 +1136,7 @@ def validate_portfolio_outputs(root: Path) -> list[str]:
         if not source.get("role"):
             errors.append(f"generated_from role missing: {source.get('path')}")
     for name, expected_header in CSV_SCHEMAS.items():
-        path = reports / "data" / name
+        path = package / "data" / name
         try:
             with path.open(encoding="utf-8", newline="") as handle:
                 rows = list(csv.reader(handle))
@@ -1141,13 +1149,13 @@ def validate_portfolio_outputs(root: Path) -> list[str]:
             errors.append(f"CSV has no data rows: {name}")
     for name in PORTFOLIO_CHART_FILES:
         try:
-            content = (reports / "charts" / name).read_text(encoding="utf-8")
+            content = (package / "charts" / name).read_text(encoding="utf-8")
         except OSError as error:
             errors.append(f"cannot read SVG {name}: {error}")
             continue
         if "<svg" not in content:
             errors.append(f"invalid SVG: {name}")
-    report = (reports / "performance.md").read_text(encoding="utf-8")
+    report = (package / "performance.md").read_text(encoding="utf-8")
     for marker in (
         "## 1. Metadata", "## 2. Purpose and scope", "Confirmed by brokerage snapshot",
         "Estimated from MOEX/public market data", "## 11. Data limitations",
@@ -1170,6 +1178,13 @@ def validate_portfolio_outputs(root: Path) -> list[str]:
         else:
             if names != expected_names:
                 errors.append("chatgpt-export.zip has unexpected contents")
+            directory_names = {
+                f"chatgpt-export/{path.relative_to(package)}"
+                for path in package.rglob("*")
+                if path.is_file()
+            }
+            if names != directory_names:
+                errors.append("chatgpt-export.zip does not match report directory")
     return errors
 
 
@@ -1181,8 +1196,8 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
     _atomic_write(path, buffer.getvalue())
 
 
-def _write_portfolio_csvs(root: Path, model: dict) -> None:
-    data = root / "reports/data"
+def _write_portfolio_csvs(package: Path, model: dict) -> None:
+    data = package / "data"
     portfolio = model["portfolio"]
     _write_csv(
         data / "portfolio-summary.csv",
@@ -1248,8 +1263,8 @@ def _write_portfolio_csvs(root: Path, model: dict) -> None:
     )
 
 
-def _write_portfolio_charts(root: Path, model: dict) -> None:
-    charts = root / "reports/charts"
+def _write_portfolio_charts(package: Path, model: dict) -> None:
+    charts = package / "charts"
     composition_by_ticker: dict[str, float] = {}
     for position in model["positions"]:
         composition_by_ticker[position["ticker"]] = (
@@ -1318,51 +1333,46 @@ def _write_portfolio_charts(root: Path, model: dict) -> None:
 
 def write_outputs(root: Path, model: dict) -> None:
     reports = root / "reports"
-    charts = reports / "charts"
-    charts.mkdir(parents=True, exist_ok=True)
+    package = reports / "chatgpt-export"
+    if package.exists():
+        shutil.rmtree(package)
+    (package / "data").mkdir(parents=True)
+    (package / "charts").mkdir()
     (reports / "chatgpt-export.zip").unlink(missing_ok=True)
-    _atomic_write(reports / "performance.md", render_performance_report(model))
+    for legacy in (reports / "performance.md", reports / "market-summary.json"):
+        legacy.unlink(missing_ok=True)
+    for legacy in (reports / "data", reports / "charts"):
+        if legacy.exists():
+            shutil.rmtree(legacy)
+    _atomic_write(package / "performance.md", render_performance_report(model))
     _atomic_write(
-        reports / "market-summary.json",
+        package / "market-summary.json",
         json.dumps(build_market_summary(model), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
     )
-    _write_portfolio_csvs(root, model)
-    _write_portfolio_charts(root, model)
+    _write_portfolio_csvs(package, model)
+    _write_portfolio_charts(package, model)
 
 
 def export_chatgpt(root: Path) -> None:
     reports = root / "reports"
     destination = reports / "chatgpt-export"
-    if destination.exists():
-        shutil.rmtree(destination)
     required = [
-        reports / "performance.md",
-        reports / "market-summary.json",
-        *(reports / "data" / name for name in PORTFOLIO_DATA_FILES),
-        *(reports / "charts" / name for name in PORTFOLIO_CHART_FILES),
+        destination / "performance.md",
+        destination / "market-summary.json",
+        *(destination / "data" / name for name in PORTFOLIO_DATA_FILES),
+        *(destination / "charts" / name for name in PORTFOLIO_CHART_FILES),
     ]
     if any(not path.exists() for path in required):
         raise OutputError("Build the report and charts before export-chatgpt")
-    with tempfile.TemporaryDirectory(dir=reports) as directory:
-        temporary = Path(directory) / "chatgpt-export"
-        temporary.mkdir()
-        shutil.copy2(reports / "performance.md", temporary / "performance.md")
-        shutil.copy2(reports / "market-summary.json", temporary / "market-summary.json")
-        (temporary / "data").mkdir()
-        (temporary / "charts").mkdir()
-        for name in PORTFOLIO_DATA_FILES:
-            shutil.copy2(reports / "data" / name, temporary / "data" / name)
-        for name in PORTFOLIO_CHART_FILES:
-            shutil.copy2(reports / "charts" / name, temporary / "charts" / name)
-        archive = reports / "chatgpt-export.zip"
-        with tempfile.NamedTemporaryFile(dir=reports, suffix=".zip", delete=False) as handle:
-            temporary_archive = Path(handle.name)
-        try:
-            with zipfile.ZipFile(temporary_archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
-                for path in sorted(temporary.rglob("*")):
-                    if path.is_file() and not any(part.startswith(".") for part in path.relative_to(temporary).parts):
-                        zipped.write(path, Path("chatgpt-export") / path.relative_to(temporary))
-            temporary_archive.replace(archive)
-        finally:
-            if temporary_archive.exists():
-                temporary_archive.unlink()
+    archive = reports / "chatgpt-export.zip"
+    with tempfile.NamedTemporaryFile(dir=reports, suffix=".zip", delete=False) as handle:
+        temporary_archive = Path(handle.name)
+    try:
+        with zipfile.ZipFile(temporary_archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+            for path in sorted(destination.rglob("*")):
+                if path.is_file() and not any(part.startswith(".") for part in path.relative_to(destination).parts):
+                    zipped.write(path, Path("chatgpt-export") / path.relative_to(destination))
+        temporary_archive.replace(archive)
+    finally:
+        if temporary_archive.exists():
+            temporary_archive.unlink()
