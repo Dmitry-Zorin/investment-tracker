@@ -31,8 +31,14 @@ def _root(args: argparse.Namespace) -> Path:
     return workspace.root
 
 
+def _market_root(args: argparse.Namespace) -> Path:
+    workspace = WorkspacePaths.from_path(args.workspace)
+    workspace.validate_market_inputs()
+    return workspace.root
+
+
 def command_add(args: argparse.Namespace) -> int:
-    root = _root(args)
+    root = _market_root(args)
     manifest = load_manifest(root / "data/market/manifest.json")
     client = MoexClient(manifest.get("source_base_url", "https://iss.moex.com/iss"))
     add_instrument(
@@ -48,7 +54,7 @@ def command_add(args: argparse.Namespace) -> int:
 
 
 def command_update(args: argparse.Namespace) -> int:
-    root = _root(args)
+    root = _market_root(args)
     path = root / "data/market/manifest.json"
     manifest = load_manifest(path)
     client = MoexClient(manifest.get("source_base_url", "https://iss.moex.com/iss"))

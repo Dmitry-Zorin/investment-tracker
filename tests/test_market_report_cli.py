@@ -129,6 +129,26 @@ class MarketReportCliTests(unittest.TestCase):
         self.assertNotIn("Traceback", completed.stderr)
         self.assertIn("current_value", completed.stderr)
 
+    def test_update_does_not_require_brokerage_files(self):
+        # add/update are market-data operations and must not depend on the
+        # brokerage snapshot/ledger, which belong to the portfolio pipeline.
+        (self.root / "brokerage-current.json").unlink()
+        (self.root / "brokerage-ledger.jsonl").unlink()
+        (self.root / "data/market/manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source_base_url": "https://iss.moex.com/iss",
+                    "instruments": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        completed = self.run_cli("update")
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_export_contains_required_package(self):
         self.assertEqual(self.run_cli("build").returncode, 0)
 
