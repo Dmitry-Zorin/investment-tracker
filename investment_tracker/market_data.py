@@ -10,6 +10,8 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
+from investment_tracker.io_utils import atomic_write
+
 
 CSV_FIELDS = (
     "date",
@@ -90,14 +92,6 @@ class MoexClient:
             raise MarketDataError(f"MOEX ISS request failed for {url}: {error}") from error
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", dir=path.parent, delete=False) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    temporary.replace(path)
-
-
 def load_manifest(path: Path) -> dict:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -111,7 +105,7 @@ def load_manifest(path: Path) -> dict:
 
 
 def save_manifest(path: Path, manifest: dict) -> None:
-    _atomic_write(path, json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    atomic_write(path, json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
 def _table(payload: dict, name: str) -> list[dict]:
@@ -292,7 +286,7 @@ def write_market_csv(path: Path, rows: list[dict]) -> None:
     content = "".join(lines)
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
-    _atomic_write(path, content)
+    atomic_write(path, content)
 
 
 def _history_rows(client: MoexClient, security: dict, board_id: str, instrument_type: str, start: str | None) -> list[dict]:

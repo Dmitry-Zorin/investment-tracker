@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import html
-import hashlib
 import io
 import json
 import shutil
@@ -11,6 +10,7 @@ import zipfile
 from datetime import date, datetime
 from pathlib import Path
 
+from investment_tracker.io_utils import atomic_write, sha256_file
 from investment_tracker.market_data import adjust_history_for_corporate_actions, load_manifest, read_market_csv
 from investment_tracker.performance_calculations import (
     CalculationError,
@@ -56,14 +56,6 @@ def _localize_annualized_reason(reason: str | None) -> str | None:
     if reason == "holding period is shorter than 30 days":
         return "период владения короче 30 дней"
     return reason
-
-
-def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", dir=path.parent, delete=False) as handle:
-        handle.write(content)
-        temporary = Path(handle.name)
-    temporary.replace(path)
 
 
 def _fmt_money(value: float | None) -> str:
@@ -113,14 +105,6 @@ def _transactions_for_position(
             copied["ticker"] = ticker
             transactions.append(copied)
     return transactions
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _warning(severity: str, code: str, message: str, affected_items: list[str] | None = None) -> dict:
@@ -495,7 +479,7 @@ def build_report_model(root: Path) -> dict:
     generated_from = [
         {
             "path": str(path.relative_to(root)),
-            "sha256": _sha256(path),
+            "sha256": sha256_file(path),
             "role": roles.get(str(path.relative_to(root)), "market_data"),
         }
         for path in source_paths
@@ -1032,7 +1016,7 @@ def validate_portfolio_outputs(root: Path) -> list[str]:
         digest = source.get("sha256")
         if not path.is_file():
             errors.append(f"missing generated_from source: {source.get('path')}")
-        elif not isinstance(digest, str) or digest != _sha256(path):
+        elif not isinstance(digest, str) or digest != sha256_file(path):
             errors.append(f"generated_from hash mismatch: {source.get('path')}")
         if not source.get("role"):
             errors.append(f"generated_from role missing: {source.get('path')}")
@@ -1094,7 +1078,7 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
     writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
     writer.writeheader()
     writer.writerows(rows)
-    _atomic_write(path, buffer.getvalue())
+    atomic_write(path, buffer.getvalue())
 
 
 def _write_portfolio_csvs(package: Path, model: dict) -> None:
@@ -1176,7 +1160,7 @@ def _write_portfolio_charts(package: Path, model: dict) -> None:
         composition.append(("CASH", model["portfolio"]["cash_rub"]))
     if not composition:
         composition.append(("not available", 0))
-    _atomic_write(
+    atomic_write(
         charts / "portfolio-composition.svg",
         render_bar_chart(
             f"Portfolio composition at {model['brokerage_snapshot_date']}",
@@ -1184,7 +1168,7 @@ def _write_portfolio_charts(package: Path, model: dict) -> None:
             "RUB; source: brokerage snapshot",
         ),
     )
-    _atomic_write(
+    atomic_write(
         charts / "positions-pnl.svg",
         render_bar_chart(
             "Confirmed PnL by position",
@@ -1201,7 +1185,7 @@ def _write_portfolio_charts(package: Path, model: dict) -> None:
         for row in model.get("benchmark_comparison", [])
         if row["difference_pct_points"] is not None
     ]
-    _atomic_write(
+    atomic_write(
         charts / "positions-vs-benchmark.svg",
         render_bar_chart(
             "Positions vs configured benchmark (lot-based; not a trading signal)",
@@ -1209,7 +1193,7 @@ def _write_portfolio_charts(package: Path, model: dict) -> None:
             "percentage points; sources: brokerage entries + MOEX",
         ),
     )
-    _atomic_write(
+    atomic_write(
         charts / "instruments-period-returns.svg",
         render_period_returns_chart(model.get("instrument_period_returns", [])),
     )
@@ -1222,7 +1206,7 @@ def _write_portfolio_charts(package: Path, model: dict) -> None:
     ]
     if not contribution_values:
         contribution_values.append(("not available", 0))
-    _atomic_write(
+    atomic_write(
         charts / "pnl-contribution.svg",
         render_bar_chart(
             "Confirmed PnL contribution",
@@ -1245,8 +1229,8 @@ def write_outputs(root: Path, model: dict) -> None:
     for legacy in (reports / "data", reports / "charts"):
         if legacy.exists():
             shutil.rmtree(legacy)
-    _atomic_write(package / "performance.md", render_performance_report(model))
-    _atomic_write(
+    atomic_write(package / "performance.md", render_performance_report(model))
+    atomic_write(
         package / "market-summary.json",
         json.dumps(build_market_summary(model), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
     )

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import html
 import io
 import json
@@ -12,6 +11,7 @@ import zipfile
 from datetime import date
 from pathlib import Path
 
+from investment_tracker.io_utils import sha256_file
 from investment_tracker.market_analysis_calculations import build_instrument_analysis
 from investment_tracker.market_data import default_analysis_profile, load_manifest, read_market_csv
 
@@ -40,12 +40,6 @@ def analysis_profile_notes(profile: str) -> dict:
     except KeyError as error:
         raise MarketAnalysisOutputError(f"Unsupported analysis profile: {profile}") from error
     return {"focus": list(notes["focus"]), "limitations": list(notes["limitations"])}
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    digest.update(path.read_bytes())
-    return digest.hexdigest()
 
 
 def build_market_analysis_model(root: Path) -> dict:
@@ -77,7 +71,7 @@ def build_market_analysis_model(root: Path) -> dict:
         "instruments": instruments,
         "warnings": warnings,
         "missing_data": [],
-        "generated_from": [{"path": str(path.relative_to(root)), "sha256": _sha256(path)} for path in sources],
+        "generated_from": [{"path": str(path.relative_to(root)), "sha256": sha256_file(path)} for path in sources],
     }
 
 
