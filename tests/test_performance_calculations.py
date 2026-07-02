@@ -122,6 +122,66 @@ class PerformanceCalculationTests(unittest.TestCase):
         self.assertAlmostEqual(result.realized_pnl, 43.5)
         self.assertAlmostEqual(result.total_pnl, 43.5)
 
+    def test_same_day_buy_before_sell_follows_ledger_order(self):
+        # Same trading day, buy recorded before sell. An event_id tiebreaker
+        # could sort the sell first and wrongly raise "Sell quantity exceeds
+        # open lots"; ledger (execution) order must win.
+        transactions = [
+            {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-02-01", "event_id": "z-buy", "quantity": 10, "deal_amount": 1000},
+            {"instrument_id": "X", "ticker": "X", "event_type": "sell", "event_date": "2026-02-01", "event_id": "a-sell", "quantity": 5, "deal_amount": 600},
+        ]
+
+        result = calculate_position(transactions, 120, date(2026, 7, 1))
+
+        self.assertAlmostEqual(result.quantity, 5)
+        self.assertAlmostEqual(result.realized_pnl, 100)
+
+    def test_same_day_fifo_follows_ledger_order(self):
+        # Two same-day buys at different prices, then a same-day sell. FIFO must
+        # consume the lot recorded first in the ledger (basis 1000), not the one
+        # an event_id sort would front (basis 2000).
+        transactions = [
+            {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-02-01", "event_id": "b2", "quantity": 10, "deal_amount": 1000},
+            {"instrument_id": "X", "ticker": "X", "event_type": "buy", "event_date": "2026-02-01", "event_id": "b1", "quantity": 10, "deal_amount": 2000},
+            {"instrument_id": "X", "ticker": "X", "event_type": "sell", "event_date": "2026-02-01", "event_id": "b3", "quantity": 10, "deal_amount": 1500},
+        ]
+
+        result = calculate_position(transactions, 200, date(2026, 7, 1))
+
+        self.assertAlmostEqual(result.realized_pnl, 500)
+        self.assertAlmostEqual(result.cost_basis, 2000)
+
+    def test_zero_coupon_amount_is_not_overridden_by_cash_effect(self):
+        # A legitimate zero coupon must not fall through to total_cash_effect.
+        transactions = [
+            {"instrument_id": "B", "ticker": "B", "event_type": "buy", "event_date": "2026-01-01", "quantity": 1, "deal_amount": 900},
+            {"instrument_id": "B", "ticker": "B", "event_type": "coupon", "event_date": "2026-04-01", "amount": 0, "total_cash_effect": 42},
+        ]
+
+        result = calculate_position(transactions, 900, date(2026, 7, 1))
+
+        self.assertAlmostEqual(result.realized_pnl, 0)
+
+    def test_coupon_falls_back_to_cash_effect_when_amount_absent(self):
+        transactions = [
+            {"instrument_id": "B", "ticker": "B", "event_type": "buy", "event_date": "2026-01-01", "quantity": 1, "deal_amount": 900},
+            {"instrument_id": "B", "ticker": "B", "event_type": "coupon", "event_date": "2026-04-01", "total_cash_effect": 42},
+        ]
+
+        result = calculate_position(transactions, 900, date(2026, 7, 1))
+
+        self.assertAlmostEqual(result.realized_pnl, 42)
+
+    def test_ytd_returns_none_for_partial_year(self):
+        # Data starts mid-year (instrument added in June): must not be reported
+        # as a full YTD figure.
+        rows = [
+            {"date": "2026-06-01", "unit_value_rub": 100},
+            {"date": "2026-12-31", "unit_value_rub": 150},
+        ]
+
+        self.assertIsNone(calculate_ytd_return(rows))
+
     def test_benchmark_uses_each_contribution_date(self):
         cash_flows = [(date(2026, 1, 1), 1000), (date(2026, 2, 1), 1000)]
         prices = [

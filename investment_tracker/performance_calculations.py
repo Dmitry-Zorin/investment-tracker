@@ -69,11 +69,24 @@ def _amount(record: dict, name: str) -> float:
     return float(value)
 
 
+def _income_amount(event: dict) -> float:
+    # Prefer an explicit amount (including a legitimate 0), falling back to the
+    # aggregate cash effect only when amount is absent or null. Using a plain
+    # `or` here would treat a real 0 as missing and mis-book the fallback value.
+    value = event.get("amount")
+    if value is not None:
+        return float(value)
+    return _amount(event, "total_cash_effect")
+
+
 def calculate_position(transactions: list[dict], latest_unit_value: float, valuation_date: date) -> PositionResult:
     relevant = [item for item in transactions if item.get("event_type") in {"buy", "sell", "coupon", "dividend", "tax"}]
     if not relevant:
         raise CalculationError("Position has no investment transactions")
-    relevant.sort(key=lambda item: (item["event_date"], item.get("event_id", "")))
+    # Same-day events keep ledger (execution) order: sort by date only and rely
+    # on Python's stable sort instead of an opaque event_id string tiebreaker,
+    # which could reorder a same-day buy/sell and corrupt FIFO lot accounting.
+    relevant.sort(key=lambda item: item["event_date"])
     instrument_id = relevant[0].get("instrument_id", "")
     secid = relevant[0].get("ticker") or relevant[0].get("secid") or instrument_id
     lots: list[list[float]] = []
@@ -120,11 +133,11 @@ def calculate_position(transactions: list[dict], latest_unit_value: float, valua
             realized += proceeds - removed_basis
             flows.append((event_date, proceeds))
         elif event_type in {"coupon", "dividend"}:
-            income = _amount(event, "amount") or _amount(event, "total_cash_effect")
+            income = _income_amount(event)
             realized += income
             flows.append((event_date, income))
         elif event_type == "tax":
-            tax = abs(_amount(event, "amount") or _amount(event, "total_cash_effect"))
+            tax = abs(_income_amount(event))
             realized -= tax
             flows.append((event_date, -tax))
     quantity = sum(lot[0] for lot in lots)
@@ -225,6 +238,11 @@ def calculate_ytd_return(rows: list[dict]) -> float | None:
     end_date = date.fromisoformat(ordered[-1]["date"])
     current_year = [row for row in ordered if date.fromisoformat(row["date"]).year == end_date.year]
     if len(current_year) < 2:
+        return None
+    # Guard against a partial year (mid-year IPO, an instrument added mid-year,
+    # or a long data gap) being reported as a full YTD figure: require data to
+    # start near 1 January, allowing for the MOEX New Year holidays.
+    if (date.fromisoformat(current_year[0]["date"]) - date(end_date.year, 1, 1)).days > 31:
         return None
     start = float(current_year[0]["unit_value_rub"])
     end = float(current_year[-1]["unit_value_rub"])
