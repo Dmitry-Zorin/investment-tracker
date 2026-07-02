@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from investment_tracker.cli import build_parser
+from investment_tracker.market_report import _check_repository
 
 
 PACKAGE_ROOT = Path(__file__).parents[1]
@@ -129,6 +130,22 @@ class MarketReportCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertNotIn("Traceback", completed.stderr)
         self.assertIn("current_value", completed.stderr)
+
+    def test_check_validates_generated_package(self):
+        # check/export gate output validation on the generated market-summary,
+        # which build writes under reports/chatgpt-export/. The gate must point
+        # there, not at the pre-restructure reports/ path, or validation is dead:
+        # a tampered generated output must be caught.
+        self.assertEqual(self.run_cli("build").returncode, 0)
+        summary = self.root / "reports/chatgpt-export/market-summary.json"
+        self.assertTrue(summary.exists())
+        clean = _check_repository(self.root)
+        self.assertFalse(any("aligned" in error or "purpose" in error for error in clean), clean)
+
+        summary.write_text("{}", encoding="utf-8")
+        tampered = _check_repository(self.root)
+
+        self.assertTrue(any("aligned" in error or "purpose" in error for error in tampered), tampered)
 
     def test_update_does_not_require_brokerage_files(self):
         # add/update are market-data operations and must not depend on the

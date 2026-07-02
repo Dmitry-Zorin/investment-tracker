@@ -122,7 +122,7 @@ def _check_repository(root: Path) -> list[str]:
         age = (date.today() - oldest_latest).days
         if age > 30:
             errors.append(f"market data are stale by {age} days")
-    summary_path = root / "reports/market-summary.json"
+    summary_path = root / "reports/chatgpt-export/market-summary.json"
     if summary_path.exists() and latest_dates:
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
