@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
 from investment_tracker.io_utils import atomic_write
+from investment_tracker.workspace import WorkspacePaths
 
 
 CSV_FIELDS = (
@@ -51,7 +52,7 @@ def _validate_secid(secid: Any) -> str:
 
 def _market_csv_path(root: Path, secid: str) -> Path:
     _validate_secid(secid)
-    path = root / "data" / "market" / f"{secid}.csv"
+    path = WorkspacePaths(root).market_csv(secid)
     if not path.resolve(strict=False).is_relative_to(root.resolve(strict=False)):
         raise MarketDataError(f"Market CSV path escapes workspace: {secid!r}")
     return path
@@ -369,7 +370,7 @@ def add_instrument(
     analysis_profile: str | None = None,
 ) -> None:
     _validate_secid(secid)
-    manifest_path = root / "data" / "market" / "manifest.json"
+    manifest_path = WorkspacePaths(root).market_manifest
     manifest = load_manifest(manifest_path)
     if any(item["secid"] == secid for item in manifest["instruments"]):
         raise MarketDataError(f"Instrument {secid} already exists")

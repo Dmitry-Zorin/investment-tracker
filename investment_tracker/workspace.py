@@ -37,6 +37,9 @@ class WorkspacePaths:
     def market_data(self) -> Path:
         return self.root / "data/market"
 
+    def market_csv(self, secid: str) -> Path:
+        return self.market_data / f"{secid}.csv"
+
     @property
     def reports(self) -> Path:
         return self.root / "reports"

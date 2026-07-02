@@ -22,6 +22,7 @@ from investment_tracker.performance_calculations import (
     calculate_ytd_return,
     load_ledger,
 )
+from investment_tracker.workspace import WorkspacePaths
 
 
 class OutputError(RuntimeError):
@@ -219,7 +220,8 @@ def aggregate_ticker_views(
 
 
 def build_report_model(root: Path) -> dict:
-    manifest = load_manifest(root / "data/market/manifest.json")
+    paths = WorkspacePaths(root)
+    manifest = load_manifest(paths.market_manifest)
     try:
         brokerage = json.loads((root / "brokerage-current.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -228,7 +230,7 @@ def build_report_model(root: Path) -> dict:
     by_id = {item["instrument_id"]: item for item in manifest["instruments"] if item.get("enabled")}
     histories = {}
     for item in by_id.values():
-        raw_rows = read_market_csv(root / "data/market" / f"{item['secid']}.csv")
+        raw_rows = read_market_csv(paths.market_csv(item["secid"]))
         histories[item["secid"]] = adjust_history_for_corporate_actions(
             raw_rows, item.get("corporate_actions")
         )
@@ -468,9 +470,9 @@ def build_report_model(root: Path) -> dict:
     source_paths = [
         root / "brokerage-current.json",
         root / "brokerage-ledger.jsonl",
-        root / "data/market/manifest.json",
+        paths.market_manifest,
     ]
-    source_paths.extend(root / "data/market" / f"{item['secid']}.csv" for item in by_id.values())
+    source_paths.extend(paths.market_csv(item["secid"]) for item in by_id.values())
     roles = {
         "brokerage-current.json": "brokerage_snapshot",
         "brokerage-ledger.jsonl": "brokerage_ledger",
@@ -935,7 +937,7 @@ CSV_SCHEMAS = {
 
 
 def validate_portfolio_outputs(root: Path) -> list[str]:
-    reports = root / "reports"
+    reports = WorkspacePaths(root).reports
     package = reports / "chatgpt-export"
     errors: list[str] = []
     required = [
@@ -1217,7 +1219,7 @@ def _write_portfolio_charts(package: Path, model: dict) -> None:
 
 
 def write_outputs(root: Path, model: dict) -> None:
-    reports = root / "reports"
+    reports = WorkspacePaths(root).reports
     package = reports / "chatgpt-export"
     if package.exists():
         shutil.rmtree(package)
@@ -1239,7 +1241,7 @@ def write_outputs(root: Path, model: dict) -> None:
 
 
 def export_chatgpt(root: Path) -> None:
-    reports = root / "reports"
+    reports = WorkspacePaths(root).reports
     destination = reports / "chatgpt-export"
     required = [
         destination / "performance.md",

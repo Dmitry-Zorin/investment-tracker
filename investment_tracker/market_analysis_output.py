@@ -14,6 +14,7 @@ from pathlib import Path
 from investment_tracker.io_utils import sha256_file
 from investment_tracker.market_analysis_calculations import build_instrument_analysis
 from investment_tracker.market_data import default_analysis_profile, load_manifest, read_market_csv
+from investment_tracker.workspace import WorkspacePaths
 
 
 PROFILE_NOTES = {
@@ -43,14 +44,15 @@ def analysis_profile_notes(profile: str) -> dict:
 
 
 def build_market_analysis_model(root: Path) -> dict:
-    manifest_path = root / "data/market/manifest.json"
+    paths = WorkspacePaths(root)
+    manifest_path = paths.market_manifest
     manifest = load_manifest(manifest_path)
     instruments = []
     sources = [manifest_path]
     for item in manifest["instruments"]:
         if not item.get("enabled", True):
             continue
-        path = root / "data/market" / f"{item['secid']}.csv"
+        path = paths.market_csv(item["secid"])
         analysis = build_instrument_analysis(item, read_market_csv(path))
         profile = item.get("analysis_profile") or default_analysis_profile(item["type"])
         notes = analysis_profile_notes(profile)
@@ -242,7 +244,7 @@ def validate_market_analysis_model(model: dict) -> list[str]:
 
 
 def export_market_analysis(root: Path, model: dict) -> Path:
-    reports = root / "reports"
+    reports = WorkspacePaths(root).reports
     reports.mkdir(parents=True, exist_ok=True)
     stale = reports / "market-analysis"
     if stale.exists():

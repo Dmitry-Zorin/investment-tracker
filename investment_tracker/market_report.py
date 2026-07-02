@@ -39,7 +39,8 @@ def _market_root(args: argparse.Namespace) -> Path:
 
 def command_add(args: argparse.Namespace) -> int:
     root = _market_root(args)
-    manifest = load_manifest(root / "data/market/manifest.json")
+    paths = WorkspacePaths(root)
+    manifest = load_manifest(paths.market_manifest)
     client = MoexClient(manifest.get("source_base_url", "https://iss.moex.com/iss"))
     add_instrument(
         client,
@@ -55,7 +56,8 @@ def command_add(args: argparse.Namespace) -> int:
 
 def command_update(args: argparse.Namespace) -> int:
     root = _market_root(args)
-    path = root / "data/market/manifest.json"
+    paths = WorkspacePaths(root)
+    path = paths.market_manifest
     manifest = load_manifest(path)
     client = MoexClient(manifest.get("source_base_url", "https://iss.moex.com/iss"))
     updated = []
@@ -84,8 +86,9 @@ def command_build(args: argparse.Namespace) -> int:
 
 
 def _check_repository(root: Path) -> list[str]:
+    paths = WorkspacePaths(root)
     errors = []
-    manifest = load_manifest(root / "data/market/manifest.json")
+    manifest = load_manifest(paths.market_manifest)
     secids = set()
     latest_dates = []
     for instrument in manifest["instruments"]:
@@ -96,7 +99,7 @@ def _check_repository(root: Path) -> list[str]:
         secids.add(secid)
         if not instrument.get("enabled", True):
             continue
-        path = root / "data/market" / f"{secid}.csv"
+        path = paths.market_csv(secid)
         if not path.exists():
             errors.append(f"missing market CSV: {path.name}")
             continue
