@@ -82,6 +82,20 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual(default_analysis_profile("fund"), "generic_fund")
         self.assertEqual(default_analysis_profile("bond"), "generic_bond")
 
+    def test_reference_default_profile_is_gold_reference(self):
+        self.assertEqual(default_analysis_profile("reference"), "gold_reference")
+
+    def test_normalizes_reference_close_as_rubles_per_gram(self):
+        row = normalize_history_row(
+            {"TRADEDATE": "2026-07-03", "CLOSE": 10352.5},
+            board_id="CETS",
+            instrument_type="reference",
+        )
+
+        self.assertEqual(row["unit_value_rub"], 10352.5)
+        self.assertEqual(row["price_unit"], "rub_per_gram")
+        self.assertIsNone(row["accrued_interest"])
+
     def test_adjusts_pre_split_prices_to_current_units(self):
         rows = [
             {"date": "2021-05-31", "close": 1127.4, "unit_value_rub": 1127.4},
@@ -199,6 +213,17 @@ class MarketDataTests(unittest.TestCase):
 
         self.assertIsNone(row)
 
+    def test_zero_reference_close_is_ignored(self):
+        # MOEX returns CLOSE=0 for GLDRUB_TOM on non-trading days; a persisted
+        # zero later fails the positive-price check in market analysis.
+        row = normalize_history_row(
+            {"TRADEDATE": "2026-07-04", "CLOSE": 0},
+            board_id="CETS",
+            instrument_type="reference",
+        )
+
+        self.assertIsNone(row)
+
     def test_bond_history_uses_only_primary_board(self):
         security = {"primary_board": "TQOB", "boards": ["PACT", "TQOB"]}
 
@@ -208,6 +233,11 @@ class MarketDataTests(unittest.TestCase):
         security = {"primary_board": "TQBR", "boards": ["PACT", "TQBR", "TQTF"]}
 
         self.assertEqual(select_history_boards(security, "fund"), ["TQBR", "TQTF"])
+
+    def test_reference_history_uses_only_primary_board(self):
+        security = {"primary_board": "CETS", "boards": ["CETS"]}
+
+        self.assertEqual(select_history_boards(security, "reference"), ["CETS"])
 
     def test_non_numeric_csv_cell_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -397,8 +427,38 @@ class MoexIntegrationTests(unittest.TestCase):
                 "history.cursor": {"columns": ["TOTAL"], "data": [[total]]},
             }
 
+    class GoldDiscoveryClient:
+        def get(self, path, params=None):
+            if path.startswith("securities/"):
+                return {
+                    "description": {
+                        "columns": ["name", "value"],
+                        "data": [["NAME", "Gold"], ["SECID", "GLDRUB_TOM"]],
+                    },
+                    "boards": {
+                        "columns": ["boardid", "engine", "market", "is_primary"],
+                        "data": [
+                            ["CETS", "currency", "selt", 1],
+                            ["SDBP", "currency", "selt", 0],
+                            ["TQBR", "stock", "shares", 0],
+                        ],
+                    },
+                }
+            return {
+                "history": {"columns": ["TRADEDATE", "CLOSE"], "data": [["2026-07-03", 10352.5]]},
+                "history.cursor": {"columns": ["TOTAL"], "data": [[1]]},
+            }
+
+    def test_discovers_currency_reference_on_primary_market(self):
+        security = discover_security(self.GoldDiscoveryClient(), "GLDRUB_TOM", "reference")
+
+        self.assertEqual(security["engine"], "currency")
+        self.assertEqual(security["market"], "selt")
+        self.assertEqual(security["primary_board"], "CETS")
+        self.assertEqual(security["boards"], ["CETS"])
+
     def test_discover_security_selects_primary_and_same_market_boards(self):
-        security = discover_security(self.DiscoveryClient(), "TESTFUND")
+        security = discover_security(self.DiscoveryClient(), "TESTFUND", "fund")
 
         self.assertEqual(security["primary_board"], "TQBR")
         self.assertEqual(security["market"], "shares")
@@ -417,7 +477,27 @@ class MoexIntegrationTests(unittest.TestCase):
                 }
 
         with self.assertRaises(MarketDataError):
-            discover_security(NoPrimary(), "TESTFUND")
+            discover_security(NoPrimary(), "TESTFUND", "fund")
+
+    def test_update_instrument_accepts_underscored_reference_secid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data/market").mkdir(parents=True)
+
+            metadata, warnings = update_instrument(
+                self.GoldDiscoveryClient(),
+                root,
+                {"secid": "GLDRUB_TOM", "type": "reference", "benchmark": "GOLD"},
+            )
+
+            rows = read_market_csv(root / "data/market/GLDRUB_TOM.csv")
+            self.assertEqual([row["date"] for row in rows], ["2026-07-03"])
+            self.assertEqual(rows[0]["price_unit"], "rub_per_gram")
+            self.assertEqual(rows[0]["unit_value_rub"], 10352.5)
+            self.assertEqual(metadata["secid"], "GLDRUB_TOM")
+            self.assertEqual(metadata["primary_board"], "CETS")
+            self.assertEqual(metadata["first_market_date"], "2026-07-03")
+            self.assertEqual(warnings, [])
 
     def test_update_instrument_follows_history_pagination(self):
         with tempfile.TemporaryDirectory() as directory:

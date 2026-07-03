@@ -34,6 +34,16 @@ ANALYSIS_PROFILES = {
     "government_bond",
     "generic_fund",
     "generic_bond",
+    "gold_reference",
+}
+
+# The (engine, market) pairs each instrument type is allowed to trade on. A
+# `reference` is a non-held price series (e.g. the GLDRUB_TOM gold fixing) taken
+# from the MOEX currency/selt market rather than a stock board.
+SUPPORTED_MARKETS = {
+    "fund": {("stock", "shares")},
+    "bond": {("stock", "bonds")},
+    "reference": {("currency", "selt")},
 }
 
 
@@ -41,7 +51,10 @@ class MarketDataError(RuntimeError):
     pass
 
 
-_SECID_PATTERN = re.compile(r"^[A-Z0-9]+$")
+# Underscores appear in MOEX currency-market tickers such as GLDRUB_TOM; they
+# are safe here because the pattern still excludes path separators and dots, so
+# a secid can never traverse out of the workspace.
+_SECID_PATTERN = re.compile(r"^[A-Z0-9_]+$")
 
 
 def _validate_secid(secid: Any) -> str:
@@ -63,6 +76,8 @@ def default_analysis_profile(instrument_type: str) -> str:
         return "generic_fund"
     if instrument_type == "bond":
         return "generic_bond"
+    if instrument_type == "reference":
+        return "gold_reference"
     raise MarketDataError(f"Unsupported instrument type: {instrument_type}")
 
 
@@ -133,7 +148,11 @@ def _table(payload: dict, name: str) -> list[dict]:
     return [dict(zip(table["columns"], row)) for row in table["data"]]
 
 
-def discover_security(client: MoexClient, secid: str) -> dict:
+def discover_security(client: MoexClient, secid: str, instrument_type: str) -> dict:
+    try:
+        supported = SUPPORTED_MARKETS[instrument_type]
+    except KeyError as error:
+        raise MarketDataError(f"Unsupported instrument type: {instrument_type}") from error
     payload = client.get(
         f"securities/{secid}.json",
         {"iss.meta": "off", "iss.only": "description,boards"},
@@ -142,13 +161,19 @@ def discover_security(client: MoexClient, secid: str) -> dict:
     boards = [
         row
         for row in _table(payload, "boards")
-        if row.get("engine") == "stock" and row.get("market") in {"shares", "bonds"}
+        if (row.get("engine"), row.get("market")) in supported
     ]
     if not boards:
         raise MarketDataError(f"No supported MOEX boards found for {secid}")
     primary = next((row for row in boards if row.get("is_primary") == 1), None)
     if primary is None:
         raise MarketDataError(f"No primary MOEX board found for {secid}")
+    if instrument_type == "reference":
+        # A reference price has a single authoritative board; there is no board
+        # migration to stitch together as there is for a held fund.
+        selected_boards = [primary["boardid"]]
+    else:
+        selected_boards = sorted({row["boardid"] for row in boards if row["market"] == primary["market"]})
     return {
         "secid": secid,
         "instrument_id": descriptions.get("ISIN") or descriptions.get("SECID") or secid,
@@ -156,7 +181,7 @@ def discover_security(client: MoexClient, secid: str) -> dict:
         "primary_board": primary["boardid"],
         "engine": primary["engine"],
         "market": primary["market"],
-        "boards": sorted({row["boardid"] for row in boards if row["market"] == primary["market"]}),
+        "boards": selected_boards,
     }
 
 
@@ -185,6 +210,15 @@ def normalize_history_row(raw: dict, board_id: str, instrument_type: str) -> dic
         accrued_interest = float(accrued_interest)
         unit_value = float(face_value) * close / 100 + accrued_interest
         price_unit = "percent_of_nominal"
+    elif instrument_type == "reference":
+        if close <= 0:
+            # MOEX reports CLOSE=0 for GLDRUB_TOM on non-trading days. Skip these
+            # like the fund no-trade rows (CLOSE=None) rather than persist a zero
+            # that later trips the positive-price invariant in market analysis.
+            return None
+        accrued_interest = None
+        unit_value = close
+        price_unit = "rub_per_gram"
     else:
         raise MarketDataError(f"Unsupported instrument type: {instrument_type}")
     result = {
@@ -331,7 +365,7 @@ def _history_rows(client: MoexClient, security: dict, board_id: str, instrument_
 
 
 def select_history_boards(security: dict, instrument_type: str) -> list[str]:
-    if instrument_type == "bond":
+    if instrument_type in {"bond", "reference"}:
         return [security["primary_board"]]
     if instrument_type == "fund":
         selected = {security["primary_board"]}
@@ -342,7 +376,7 @@ def select_history_boards(security: dict, instrument_type: str) -> list[str]:
 
 def update_instrument(client: MoexClient, root: Path, instrument: dict) -> tuple[dict, list[str]]:
     _validate_secid(instrument.get("secid"))
-    security = discover_security(client, instrument["secid"])
+    security = discover_security(client, instrument["secid"], instrument["type"])
     if instrument.get("instrument_id") and instrument["instrument_id"] != security["instrument_id"]:
         raise MarketDataError(f"Instrument id mismatch for {instrument['secid']}")
     path = _market_csv_path(root, instrument["secid"])

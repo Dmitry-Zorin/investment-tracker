@@ -25,6 +25,7 @@ PROFILE_NOTES = {
     "government_bond": {"focus": ["чистая цена", "доходность к погашению"], "limitations": ["нет ожиданий ставки, дюрации и сравнения выпусков"]},
     "generic_fund": {"focus": ["наблюдаемая цена", "ликвидность"], "limitations": ["причинная интерпретация требует внешних данных"]},
     "generic_bond": {"focus": ["чистая цена", "доходность", "ликвидность"], "limitations": ["причинная интерпретация требует внешних данных"]},
+    "gold_reference": {"focus": ["рублёвая цена золота", "диапазон", "просадка", "волатильность"], "limitations": ["рублёвая цена объединяет мировую цену золота и курс рубля"]},
 }
 
 FUND_FIELDS = ("date", "board_id", "raw_close_rub", "adjusted_close_rub", "adjustment_factor", "daily_return", "drawdown", "ma20", "ma60", "volume", "turnover_rub")
@@ -34,6 +35,9 @@ ANALYSIS_WINDOWS = ("5y", "1y", "3m")
 EXPECTED_SERIES = {
     "fund": ("turnover_rub",),
     "bond": ("turnover_rub", "yield_close_percent"),
+    # The MOEX GLDRUB_TOM history endpoint carries no turnover fields, so there
+    # is no expected series whose absence would count as a coverage gap.
+    "reference": (),
 }
 
 
@@ -168,7 +172,7 @@ def render_analysis_markdown(model: dict) -> str:
 
 
 def render_analytical_csv(instrument_analysis: dict) -> str:
-    fields = FUND_FIELDS if instrument_analysis["type"] == "fund" else BOND_FIELDS
+    fields = FUND_FIELDS if instrument_analysis["type"] in {"fund", "reference"} else BOND_FIELDS
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
     writer.writeheader()

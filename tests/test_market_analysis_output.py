@@ -15,17 +15,23 @@ from investment_tracker.market_analysis_output import (
 
 
 def rows(instrument_type="fund", count=90):
+    board = {"fund": "TQBR", "bond": "TQOB", "reference": "CETS"}[instrument_type]
     result = []
     for index in range(count):
         row = {
             "date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
-            "board_id": "TQBR" if instrument_type == "fund" else "TQOB",
+            "board_id": board,
             "close": 100 + index / 10,
-            "unit_value_rub": 100 + index / 10 if instrument_type == "fund" else 1030 + index,
-            "accrued_interest": None if instrument_type == "fund" else 30 + index / 10,
-            "volume": 100 + index,
-            "value_rub": 10000 + index * 100,
+            "unit_value_rub": 100 + index / 10 if instrument_type != "bond" else 1030 + index,
+            "accrued_interest": None if instrument_type != "bond" else 30 + index / 10,
         }
+        if instrument_type == "reference":
+            # A gold reference carries no turnover series (see EXPECTED_SERIES).
+            row["volume"] = None
+            row["value_rub"] = None
+        else:
+            row["volume"] = 100 + index
+            row["value_rub"] = 10000 + index * 100
         if instrument_type == "bond":
             row["yield_close"] = 15 - index / 100
         result.append(row)
@@ -78,6 +84,17 @@ class MarketAnalysisOutputTests(unittest.TestCase):
 
         self.assertIn("курс рубля", " ".join(gold["limitations"]))
         self.assertNotEqual(gold, generic)
+
+    def test_gold_reference_has_explicit_profile_and_no_turnover_gap(self):
+        reference = build_instrument_analysis(
+            {"secid": "GLDRUB_TOM", "type": "reference", "analysis_profile": "gold_reference"},
+            rows("reference"),
+        )
+        notes = analysis_profile_notes("gold_reference")
+        absent = [r for r in collect_missing_data([reference]) if r["kind"] == "absent_series"]
+
+        self.assertIn("золота", " ".join(notes["focus"]))
+        self.assertEqual(absent, [])
 
     def test_summary_excludes_internal_rows(self):
         summary = serializable_summary(self.model)

@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     add = commands.add_parser("add", help="add a MOEX instrument")
     add.add_argument("secid")
-    add.add_argument("--type", required=True, choices=("fund", "bond"))
+    add.add_argument("--type", required=True, choices=("fund", "bond", "reference"))
     add.add_argument("--benchmark", required=True)
     add.add_argument("--analysis-profile", choices=sorted(ANALYSIS_PROFILES))
     add.set_defaults(handler=market_report.command_add)

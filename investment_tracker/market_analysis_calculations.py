@@ -80,7 +80,8 @@ def enrich_market_rows(instrument: dict, rows: list[dict]) -> list[dict]:
     if len(ordered) < 2:
         raise MarketAnalysisError(f"At least two observations required for {instrument['secid']}")
     adjusted = adjust_history_for_corporate_actions(ordered, instrument.get("corporate_actions"))
-    values = [float(row["unit_value_rub"] if instrument["type"] == "fund" else row["close"]) for row in adjusted]
+    price_from_unit_value = instrument["type"] in {"fund", "reference"}
+    values = [float(row["unit_value_rub"] if price_from_unit_value else row["close"]) for row in adjusted]
     if not all(math.isfinite(value) and value > 0 for value in values):
         raise MarketAnalysisError(f"Invalid market value for {instrument['secid']}")
     enriched = []
@@ -98,7 +99,7 @@ def enrich_market_rows(instrument: dict, rows: list[dict]) -> list[dict]:
             "volume": raw.get("volume"),
             "turnover_rub": raw.get("value_rub"),
         }
-        if instrument["type"] == "fund":
+        if price_from_unit_value:
             adjusted_close = float(normalized["unit_value_rub"])
             raw_close = float(raw["close"])
             common.update(
