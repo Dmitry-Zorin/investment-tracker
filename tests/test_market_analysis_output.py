@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from investment_tracker.market_analysis_calculations import build_instrument_analysis
 from investment_tracker.market_analysis_output import (
     analysis_profile_notes,
+    collect_missing_data,
     render_analysis_markdown,
     render_analytical_csv,
     render_market_chart,
@@ -85,6 +86,56 @@ class MarketAnalysisOutputTests(unittest.TestCase):
         self.assertNotIn("data_rows", encoded)
         self.assertNotIn('"rows"', encoded)
         self.assertIn("range_position_bucket", encoded)
+
+    def test_name_reaches_summary_and_markdown(self):
+        named = build_instrument_analysis(
+            {"secid": "SBGD", "name": "Первая — Фонд Доступное золото", "type": "fund"},
+            rows(),
+        )
+        model = {**self.model, "instruments": [named]}
+
+        summary = serializable_summary(model)
+        markdown = render_analysis_markdown(model)
+
+        self.assertEqual(summary["instruments"][0]["name"], "Первая — Фонд Доступное золото")
+        self.assertIn("## SBGD — Первая — Фонд Доступное золото", markdown)
+
+    def test_name_falls_back_to_secid_and_heading_stays_bare(self):
+        # Instruments without a manifest name (hand-written manifests, older data)
+        # still get a usable label, and the markdown heading does not read "FUND — FUND".
+        summary = serializable_summary(self.model)
+        markdown = render_analysis_markdown(self.model)
+
+        self.assertEqual(summary["instruments"][0]["name"], "FUND")
+        self.assertIn("## FUND\n", markdown)
+        self.assertNotIn("FUND — FUND", markdown)
+
+    def test_missing_data_lists_partial_windows_and_excludes_covered_ones(self):
+        # 200 observations from 2026-01-01 cover the 3m window fully but not 1y/5y.
+        long_fund = build_instrument_analysis({"secid": "LONG", "type": "fund"}, rows(count=200))
+
+        records = collect_missing_data([long_fund])
+
+        partial = {r["window"] for r in records if r["kind"] == "partial_window"}
+        self.assertEqual(partial, {"5y", "1y"})
+        one_year = next(r for r in records if r["kind"] == "partial_window" and r["window"] == "1y")
+        self.assertLess(one_year["requested_start"], one_year["actual_start"])
+
+    def test_missing_data_flags_absent_expected_series(self):
+        bond_rows = rows("bond")
+        for row in bond_rows:
+            row.pop("yield_close")
+        no_yield = build_instrument_analysis({"secid": "OFZ", "type": "bond"}, bond_rows)
+
+        absent = {r["field"] for r in collect_missing_data([no_yield]) if r["kind"] == "absent_series"}
+
+        self.assertIn("yield_close_percent", absent)
+
+    def test_missing_data_ignores_fully_populated_series(self):
+        # The bond fixture carries both yields and turnover, so no absent_series record.
+        absent = [r for r in collect_missing_data([self.bond]) if r["kind"] == "absent_series"]
+
+        self.assertEqual(absent, [])
 
     def test_markdown_has_stable_chatgpt_output_contract(self):
         markdown = render_analysis_markdown(self.model)

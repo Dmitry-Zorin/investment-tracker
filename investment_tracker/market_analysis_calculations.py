@@ -229,6 +229,7 @@ def build_instrument_analysis(instrument: dict, rows: list[dict]) -> dict:
             warnings.append(f"{instrument['secid']}: gap of {gap} calendar days ending {current['date']}")
     return {
         "secid": instrument["secid"],
+        "name": instrument.get("name") or instrument["secid"],
         "type": instrument["type"],
         "analysis_profile": instrument.get("analysis_profile", f"generic_{instrument['type']}"),
         "corporate_actions": instrument.get("corporate_actions", []),

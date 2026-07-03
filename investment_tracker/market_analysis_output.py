@@ -30,6 +30,12 @@ PROFILE_NOTES = {
 FUND_FIELDS = ("date", "board_id", "raw_close_rub", "adjusted_close_rub", "adjustment_factor", "daily_return", "drawdown", "ma20", "ma60", "volume", "turnover_rub")
 BOND_FIELDS = ("date", "board_id", "clean_price_percent", "dirty_value_rub", "accrued_interest_rub", "yield_close_percent", "daily_return", "drawdown", "ma20", "ma60", "volume", "turnover_rub")
 
+ANALYSIS_WINDOWS = ("5y", "1y", "3m")
+EXPECTED_SERIES = {
+    "fund": ("turnover_rub",),
+    "bond": ("turnover_rub", "yield_close_percent"),
+}
+
 
 class MarketAnalysisOutputError(RuntimeError):
     pass
@@ -41,6 +47,38 @@ def analysis_profile_notes(profile: str) -> dict:
     except KeyError as error:
         raise MarketAnalysisOutputError(f"Unsupported analysis profile: {profile}") from error
     return {"focus": list(notes["focus"]), "limitations": list(notes["limitations"])}
+
+
+def collect_missing_data(instruments: list[dict]) -> list[dict]:
+    """Structured coverage gaps the package is aware of, distinct from the
+    free-text ``warnings`` (which flag >14-day holes in an otherwise present
+    series). Two kinds:
+
+    - ``partial_window``: a requested window reaches further back than the
+      available history, so its return/range/drawdown span a shorter period
+      than the label implies.
+    - ``absent_series``: a column the instrument type is expected to carry has
+      no values at all (a bond with no yield history, or missing turnover),
+      leaving every metric derived from it null.
+    """
+    records = []
+    for instrument in instruments:
+        secid = instrument["secid"]
+        for window in ANALYSIS_WINDOWS:
+            metrics = instrument["windows"].get(window)
+            if metrics and metrics.get("coverage_status") == "partial":
+                records.append({
+                    "secid": secid,
+                    "kind": "partial_window",
+                    "window": window,
+                    "requested_start": metrics.get("requested_start"),
+                    "actual_start": metrics.get("actual_start"),
+                })
+        rows = instrument["data_rows"]
+        for field in EXPECTED_SERIES.get(instrument["type"], ()):
+            if all(row.get(field) is None for row in rows):
+                records.append({"secid": secid, "kind": "absent_series", "field": field})
+    return records
 
 
 def build_market_analysis_model(root: Path) -> dict:
@@ -72,7 +110,7 @@ def build_market_analysis_model(root: Path) -> dict:
         "source": {"name": "MOEX ISS", "url": manifest.get("source_base_url", "https://iss.moex.com/iss")},
         "instruments": instruments,
         "warnings": warnings,
-        "missing_data": [],
+        "missing_data": collect_missing_data(instruments),
         "generated_from": [{"path": str(path.relative_to(root)), "sha256": sha256_file(path)} for path in sources],
     }
 
@@ -84,6 +122,7 @@ def serializable_summary(model: dict) -> dict:
         "volatility": "sample standard deviation of daily returns multiplied by sqrt(252)",
         "moving_averages": "20 and 60 trading observations with pre-window warm-up",
         "recommendations": "none; categories describe market position only",
+        "missing_data": "structured coverage gaps: partial_window (history shorter than the window) and absent_series (an expected column has no values); warnings separately flag >14-day gaps in a present series",
     }
     result["instruments"] = []
     for instrument in model["instruments"]:
@@ -110,7 +149,9 @@ def render_analysis_markdown(model: dict) -> str:
         "",
     ]
     for instrument in model["instruments"]:
-        lines.extend([f"## {instrument['secid']}", "", f"Фокус: {', '.join(instrument.get('analysis_focus', []))}.", f"Ограничения: {', '.join(instrument.get('analysis_limitations', []))}.", "", "| Окно | Период | Изменение | Положение | Просадка | Волатильность |", "| --- | --- | ---: | --- | ---: | --- |"])
+        name = instrument.get("name")
+        heading = f"{instrument['secid']} — {name}" if name and name != instrument["secid"] else instrument["secid"]
+        lines.extend([f"## {heading}", "", f"Фокус: {', '.join(instrument.get('analysis_focus', []))}.", f"Ограничения: {', '.join(instrument.get('analysis_limitations', []))}.", "", "| Окно | Период | Изменение | Положение | Просадка | Волатильность |", "| --- | --- | ---: | --- | ---: | --- |"])
         for name, window in instrument["windows"].items():
             lines.append(f"| {name} | {window['actual_start']} — {window['actual_end']} | {_pct(window['return'])} | {window['range_position_bucket']} | {_pct(window['current_drawdown'])} | {window['volatility_context']} |")
         lines.append("")
