@@ -67,5 +67,14 @@ python3 -m unittest discover -s tests -v
 it to a temporary directory before generating reports, so tracked fixtures stay
 unchanged.
 
+Charts are SVGs, so their correctness is visual. `tools/render_charts.py` builds
+the report and market-analysis packages from a workspace (the bundled fixture by
+default) and rasterizes every chart to PNG for review (requires macOS `qlmanage`):
+
+```zsh
+python3 tools/render_charts.py
+```
+
 See [workspace-format.md](docs/workspace-format.md),
 [privacy.md](docs/privacy.md), and [ai-workflow.md](docs/ai-workflow.md).
+Contributors and coding assistants: [CLAUDE.md](CLAUDE.md) and [AGENTS.md](AGENTS.md).
